@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
@@ -256,7 +256,7 @@ class AdminPanelDatabaseTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(extended.plan, PREMIUM)
         self.assertGreater(
             datetime.fromisoformat(extended.premium_until),
-            datetime.now(UTC),
+            datetime.now(timezone.utc),
         )
 
         self.assertTrue(

@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 from app.database import HistoryMessage
 
@@ -24,7 +24,7 @@ def format_history_datetime(value: str) -> str:
     except ValueError:
         return value
     if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=UTC)
+        parsed = parsed.replace(tzinfo=timezone.utc)
     return parsed.astimezone().strftime("%d.%m.%Y %H:%M")
 
 

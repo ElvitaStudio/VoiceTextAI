@@ -1,4 +1,4 @@
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
@@ -201,7 +201,7 @@ class PaymentDatabaseTests(unittest.IsolatedAsyncioTestCase):
         self.temp_dir.cleanup()
 
     async def test_payment_is_saved_and_pro_is_granted(self) -> None:
-        before = datetime.now(UTC)
+        before = datetime.now(timezone.utc)
         payload = "plan:pro:12345:1750000000"
 
         processed = await self.db.process_stars_payment(

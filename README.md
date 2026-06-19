@@ -2,7 +2,7 @@
 
 Transform Telegram voice messages into polished, structured text with AI.
 
-[![Python](https://img.shields.io/badge/Python-3.12%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![aiogram](https://img.shields.io/badge/aiogram-3.x-2CA5E0?logo=telegram&logoColor=white)](https://docs.aiogram.dev/)
 [![OpenAI](https://img.shields.io/badge/OpenAI-API-412991?logo=openai&logoColor=white)](https://platform.openai.com/)
 [![SQLite](https://img.shields.io/badge/SQLite-Database-003B57?logo=sqlite&logoColor=white)](https://www.sqlite.org/)
@@ -92,7 +92,7 @@ The legacy `/admin_users` command remains available.
 
 ## Tech stack
 
-- Python 3.12+
+- Python 3.10+
 - aiogram 3
 - OpenAI API
 - SQLite and aiosqlite
@@ -107,7 +107,7 @@ Clone the repository and create a virtual environment:
 git clone https://github.com/<username>/VoiceTextAI.git
 cd VoiceTextAI
 
-python3.12 -m venv .venv
+python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 ```

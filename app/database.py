@@ -2,8 +2,7 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from datetime import UTC, datetime
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from collections.abc import AsyncIterator
 
@@ -409,11 +408,11 @@ class Database:
 
     @staticmethod
     def _now() -> str:
-        return datetime.now(UTC).isoformat()
+        return datetime.now(timezone.utc).isoformat()
 
     @staticmethod
     def _today() -> str:
-        return datetime.now(UTC).date().isoformat()
+        return datetime.now(timezone.utc).date().isoformat()
 
     async def upsert_user(
         self,
@@ -632,21 +631,21 @@ class Database:
         except ValueError:
             return False
         if parsed.tzinfo is None:
-            parsed = parsed.replace(tzinfo=UTC)
-        return parsed > datetime.now(UTC)
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed > datetime.now(timezone.utc)
 
     @staticmethod
     def _extend_premium_until(
         current_value: str | None,
         reward_days: int,
     ) -> str:
-        now = datetime.now(UTC)
+        now = datetime.now(timezone.utc)
         base = now
         if current_value:
             try:
                 current = datetime.fromisoformat(current_value)
                 if current.tzinfo is None:
-                    current = current.replace(tzinfo=UTC)
+                    current = current.replace(tzinfo=timezone.utc)
                 if current > now:
                     base = current
             except ValueError:
@@ -658,13 +657,13 @@ class Database:
         current_value: str | None,
         days: int,
     ) -> str:
-        now = datetime.now(UTC)
+        now = datetime.now(timezone.utc)
         base = now
         if current_value:
             try:
                 current = datetime.fromisoformat(current_value)
                 if current.tzinfo is None:
-                    current = current.replace(tzinfo=UTC)
+                    current = current.replace(tzinfo=timezone.utc)
                 if current > now:
                     base = current
             except ValueError:

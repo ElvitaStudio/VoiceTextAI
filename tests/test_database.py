@@ -1,5 +1,5 @@
 import asyncio
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
@@ -160,7 +160,7 @@ class DatabaseLimitTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_referral_grants_premium_for_three_days(self) -> None:
         inviter = self.user
-        before = datetime.now(UTC)
+        before = datetime.now(timezone.utc)
         result = await self.db.register_user(
             telegram_id=456,
             username="friend",
