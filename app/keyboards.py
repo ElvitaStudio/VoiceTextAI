@@ -67,13 +67,13 @@ def premium_keyboard() -> InlineKeyboardMarkup:
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text="⭐ Купить Pro",
+                    text="⭐ Купить Pro — 250 Stars",
                     callback_data=f"{PAYMENT_CALLBACK_PREFIX}:pro",
                 )
             ],
             [
                 InlineKeyboardButton(
-                    text="👑 Купить Premium",
+                    text="👑 Купить Premium — 500 Stars",
                     callback_data=f"{PAYMENT_CALLBACK_PREFIX}:premium",
                 )
             ],

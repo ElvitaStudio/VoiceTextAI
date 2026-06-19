@@ -19,6 +19,7 @@ class User:
     plan: str
     referred_by: int | None = None
     premium_until: str | None = None
+    plan_until: str | None = None
 
     @property
     def is_premium(self) -> bool:
@@ -143,6 +144,19 @@ class AdminReferralReport:
 
 
 @dataclass(frozen=True, slots=True)
+class Payment:
+    id: int
+    user_id: int
+    plan: str
+    currency: str
+    amount: int
+    payload: str
+    telegram_payment_charge_id: str
+    provider_payment_charge_id: str
+    created_at: str
+
+
+@dataclass(frozen=True, slots=True)
 class RegistrationResult:
     user: User
     created: bool
@@ -178,6 +192,7 @@ class Database:
                     plan TEXT NOT NULL DEFAULT 'free',
                     referred_by INTEGER,
                     premium_until TEXT,
+                    plan_until TEXT,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL,
                     FOREIGN KEY (referred_by)
@@ -247,6 +262,23 @@ class Database:
 
                 CREATE INDEX IF NOT EXISTS idx_referrals_inviter
                     ON referrals(inviter_id, created_at);
+
+                CREATE TABLE IF NOT EXISTS payments (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    plan TEXT NOT NULL,
+                    currency TEXT NOT NULL,
+                    amount INTEGER NOT NULL CHECK (amount > 0),
+                    payload TEXT NOT NULL,
+                    telegram_payment_charge_id TEXT NOT NULL UNIQUE,
+                    provider_payment_charge_id TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY (user_id)
+                        REFERENCES users(id) ON DELETE CASCADE
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_payments_user_created
+                    ON payments(user_id, created_at);
                 """
             )
             await self._migrate_ai_usage_tables(db)
@@ -275,6 +307,10 @@ class Database:
             if "premium_until" not in columns:
                 await db.execute(
                     "ALTER TABLE users ADD COLUMN premium_until TEXT"
+                )
+            if "plan_until" not in columns:
+                await db.execute(
+                    "ALTER TABLE users ADD COLUMN plan_until TEXT"
                 )
             await db.execute(
                 """
@@ -418,7 +454,8 @@ class Database:
                     plan,
                     is_premium,
                     referred_by,
-                    premium_until
+                    premium_until,
+                    plan_until
                 FROM users
                 WHERE telegram_id = ?
                 """,
@@ -542,7 +579,8 @@ class Database:
                     plan,
                     is_premium,
                     referred_by,
-                    premium_until
+                    premium_until,
+                    plan_until
                 FROM users
                 WHERE id = ?
                 """,
@@ -561,7 +599,13 @@ class Database:
 
     def _row_to_user(self, row: aiosqlite.Row) -> User:
         plan = row["plan"]
-        if bool(row["is_premium"]) and plan == FREE:
+        row_keys = row.keys()
+        plan_until = (
+            row["plan_until"] if "plan_until" in row_keys else None
+        )
+        if plan_until is not None and not self._is_future(plan_until):
+            plan = FREE
+        elif bool(row["is_premium"]) and plan == FREE:
             plan = PREMIUM
         if plan not in VALID_PLANS:
             plan = FREE
@@ -578,6 +622,7 @@ class Database:
             plan=plan,
             referred_by=row["referred_by"],
             premium_until=premium_until,
+            plan_until=plan_until,
         )
 
     @staticmethod
@@ -608,6 +653,24 @@ class Database:
                 pass
         return (base + timedelta(days=reward_days)).isoformat()
 
+    @staticmethod
+    def _extend_until(
+        current_value: str | None,
+        days: int,
+    ) -> str:
+        now = datetime.now(UTC)
+        base = now
+        if current_value:
+            try:
+                current = datetime.fromisoformat(current_value)
+                if current.tzinfo is None:
+                    current = current.replace(tzinfo=UTC)
+                if current > now:
+                    base = current
+            except ValueError:
+                pass
+        return (base + timedelta(days=days)).isoformat()
+
     async def get_referral_count(self, inviter_user_id: int) -> int:
         async with self._connect() as db:
             cursor = await db.execute(
@@ -637,6 +700,7 @@ class Database:
                     is_premium,
                     referred_by,
                     premium_until,
+                    plan_until,
                     created_at
                 FROM users
                 ORDER BY created_at DESC, id DESC
@@ -675,6 +739,7 @@ class Database:
                     is_premium,
                     referred_by,
                     premium_until,
+                    plan_until,
                     created_at
                 FROM users
                 """
@@ -754,6 +819,7 @@ class Database:
                     is_premium,
                     referred_by,
                     premium_until,
+                    plan_until,
                     created_at
                 FROM users
                 ORDER BY created_at DESC, id DESC
@@ -801,6 +867,7 @@ class Database:
                     u.is_premium,
                     u.referred_by,
                     u.premium_until,
+                    u.plan_until,
                     u.created_at,
                     (
                         SELECT COUNT(*)
@@ -896,6 +963,7 @@ class Database:
                 SET plan = ?,
                     is_premium = ?,
                     premium_until = {premium_until_sql},
+                    plan_until = NULL,
                     updated_at = ?
                 WHERE id = ?
                 """,
@@ -903,6 +971,146 @@ class Database:
             )
             await db.commit()
             return cursor.rowcount == 1
+
+    async def process_stars_payment(
+        self,
+        telegram_id: int,
+        plan: str,
+        currency: str,
+        amount: int,
+        payload: str,
+        telegram_payment_charge_id: str,
+        provider_payment_charge_id: str,
+        duration_days: int = 30,
+    ) -> bool:
+        if plan not in {PRO, PREMIUM}:
+            raise ValueError(f"Unsupported paid plan: {plan}")
+        if currency != "XTR":
+            raise ValueError("Telegram Stars payments must use XTR")
+        if amount <= 0 or duration_days <= 0:
+            raise ValueError("Payment amount and duration must be positive")
+        if not telegram_payment_charge_id:
+            raise ValueError("Telegram payment charge ID is required")
+
+        now = self._now()
+        async with self._connect() as db:
+            db.row_factory = aiosqlite.Row
+            await db.execute("BEGIN IMMEDIATE")
+            cursor = await db.execute(
+                """
+                SELECT id, plan, plan_until
+                FROM users
+                WHERE telegram_id = ?
+                """,
+                (telegram_id,),
+            )
+            user_row = await cursor.fetchone()
+            if user_row is None:
+                await db.rollback()
+                return False
+
+            cursor = await db.execute(
+                """
+                INSERT OR IGNORE INTO payments (
+                    user_id,
+                    plan,
+                    currency,
+                    amount,
+                    payload,
+                    telegram_payment_charge_id,
+                    provider_payment_charge_id,
+                    created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    user_row["id"],
+                    plan,
+                    currency,
+                    amount,
+                    payload,
+                    telegram_payment_charge_id,
+                    provider_payment_charge_id,
+                    now,
+                ),
+            )
+            if cursor.rowcount != 1:
+                await db.rollback()
+                return False
+
+            current_until = (
+                user_row["plan_until"]
+                if user_row["plan"] == plan
+                else None
+            )
+            plan_until = self._extend_until(
+                current_until,
+                duration_days,
+            )
+            premium_until = plan_until if plan == PREMIUM else None
+            await db.execute(
+                """
+                UPDATE users
+                SET plan = ?,
+                    is_premium = ?,
+                    plan_until = ?,
+                    premium_until = ?,
+                    updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    plan,
+                    int(plan == PREMIUM),
+                    plan_until,
+                    premium_until,
+                    now,
+                    user_row["id"],
+                ),
+            )
+            await db.commit()
+        return True
+
+    async def get_payment_by_charge_id(
+        self,
+        telegram_payment_charge_id: str,
+    ) -> Payment | None:
+        async with self._connect() as db:
+            db.row_factory = aiosqlite.Row
+            cursor = await db.execute(
+                """
+                SELECT
+                    id,
+                    user_id,
+                    plan,
+                    currency,
+                    amount,
+                    payload,
+                    telegram_payment_charge_id,
+                    provider_payment_charge_id,
+                    created_at
+                FROM payments
+                WHERE telegram_payment_charge_id = ?
+                """,
+                (telegram_payment_charge_id,),
+            )
+            row = await cursor.fetchone()
+        if row is None:
+            return None
+        return Payment(
+            id=row["id"],
+            user_id=row["user_id"],
+            plan=row["plan"],
+            currency=row["currency"],
+            amount=row["amount"],
+            payload=row["payload"],
+            telegram_payment_charge_id=row[
+                "telegram_payment_charge_id"
+            ],
+            provider_payment_charge_id=row[
+                "provider_payment_charge_id"
+            ],
+            created_at=row["created_at"],
+        )
 
     async def get_admin_referral_report(self) -> AdminReferralReport:
         async with self._connect() as db:
@@ -1254,6 +1462,8 @@ class Database:
                 UPDATE users
                 SET plan = ?,
                     is_premium = ?,
+                    plan_until = NULL,
+                    premium_until = NULL,
                     updated_at = ?
                 WHERE telegram_id = ?
                 """,

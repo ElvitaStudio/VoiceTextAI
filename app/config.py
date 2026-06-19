@@ -16,6 +16,7 @@ class Settings:
     transcription_model: str = "gpt-4o-mini-transcribe"
     formatting_model: str = "gpt-5.5"
     admin_ids: frozenset[int] = frozenset()
+    support_username: str = ""
 
 
 def parse_admin_ids(value: str) -> frozenset[int]:
@@ -55,4 +56,5 @@ def load_settings() -> Settings:
         telegram_bot_token=telegram_token,
         openai_api_key=openai_key,
         admin_ids=parse_admin_ids(os.getenv("ADMIN_IDS", "")),
+        support_username=os.getenv("SUPPORT_USERNAME", "").strip().lstrip("@"),
     )

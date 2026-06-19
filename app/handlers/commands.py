@@ -178,6 +178,7 @@ async def help_command(
         "/limits — ваши тарифные лимиты\n"
         "/history — история сообщений\n"
         "/premium — тарифы VoiceText AI\n"
+        "/paysupport — поддержка по оплате\n"
         "/invite — пригласить друга\n"
         "/admin — панель администратора\n"
         "/admin_users — список пользователей (для администраторов)"

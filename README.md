@@ -41,8 +41,23 @@ Current release: **v1.4**
 Premium also includes unlimited history, maximum processing priority and
 early access to new features.
 
-> Payment buttons are currently placeholders. Telegram Stars payments are
-> planned for a future release.
+Pro costs 250 Telegram Stars for 30 days. Premium costs 500 Telegram Stars
+for 30 days.
+
+## Telegram Stars payments
+
+Digital subscriptions are paid through Telegram Stars:
+
+- `/premium` opens the plan description and purchase buttons;
+- the bot sends a Telegram invoice in `currency="XTR"`;
+- digital goods use an empty `provider_token`;
+- Telegram validates the invoice through a pre-checkout query;
+- a successful payment activates the selected plan for 30 days;
+- every Telegram payment charge ID is stored once to prevent duplicate
+  activation.
+
+Payment support is available through `/paysupport`. Configure the public
+support contact with `SUPPORT_USERNAME`.
 
 ## Referral system
 
@@ -119,6 +134,7 @@ Configure the following values:
 TELEGRAM_BOT_TOKEN=your_telegram_bot_token
 OPENAI_API_KEY=your_openai_api_key
 ADMIN_IDS=123456789,987654321
+SUPPORT_USERNAME=VoiceTextSupport
 ```
 
 | Variable | Required | Description |
@@ -126,6 +142,7 @@ ADMIN_IDS=123456789,987654321
 | `TELEGRAM_BOT_TOKEN` | Yes | Telegram bot token from BotFather |
 | `OPENAI_API_KEY` | Yes | OpenAI API key |
 | `ADMIN_IDS` | No | Comma-separated Telegram IDs with admin access |
+| `SUPPORT_USERNAME` | No | Telegram username shown by `/paysupport` |
 
 Never commit `.env`. It is excluded by `.gitignore`.
 
@@ -161,7 +178,7 @@ Suggested location for future images: `docs/screenshots/`.
 
 ## Roadmap
 
-- [ ] Telegram Stars payments
+- [x] Telegram Stars payments
 - [ ] VPS deployment and process management
 - [ ] Product analytics
 - [ ] Search and filters in the admin panel

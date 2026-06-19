@@ -15,6 +15,7 @@ async def set_commands(bot: Bot) -> None:
             BotCommand(command="limits", description="Мои лимиты"),
             BotCommand(command="history", description="История сообщений"),
             BotCommand(command="premium", description="Premium"),
+            BotCommand(command="paysupport", description="Помощь с оплатой"),
             BotCommand(command="invite", description="Пригласить друга"),
         ]
     )

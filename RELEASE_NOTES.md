@@ -55,6 +55,16 @@ VoiceText AI v1.4 is the current GitHub-ready release of the Telegram bot.
 - Referral totals, top inviters and referral history
 - Legacy `/admin_users` command
 
+### Telegram Stars payments
+
+- Pro invoice for 250 Stars and 30 days
+- Premium invoice for 500 Stars and 30 days
+- XTR currency with an empty provider token for digital goods
+- Pre-checkout payload, owner, currency and amount validation
+- Idempotent successful-payment processing
+- Payment history stored with Telegram payment charge IDs
+- `/paysupport` payment support command
+
 ### Data and quality
 
 - SQLite storage and automatic migrations
@@ -64,5 +74,4 @@ VoiceText AI v1.4 is the current GitHub-ready release of the Telegram bot.
 
 ### Known limitations
 
-- Telegram Stars payment buttons are placeholders
 - Production deployment and analytics are planned for later releases

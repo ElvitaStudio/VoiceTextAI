@@ -52,8 +52,11 @@ class CommandTextTests(unittest.TestCase):
         self.assertEqual(
             buttons,
             [
-                ("⭐ Купить Pro", "payment:pro"),
-                ("👑 Купить Premium", "payment:premium"),
+                ("⭐ Купить Pro — 250 Stars", "payment:pro"),
+                (
+                    "👑 Купить Premium — 500 Stars",
+                    "payment:premium",
+                ),
                 ("🎁 Пригласить друга", "payment:invite"),
             ],
         )
