@@ -1,6 +1,10 @@
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from app.languages import SUPPORTED_LANGUAGES
+from app.referrals import (
+    REFERRAL_COPY_CALLBACK,
+    build_referral_share_url,
+)
 
 
 CALLBACK_PREFIX = "text"
@@ -81,6 +85,39 @@ def premium_keyboard() -> InlineKeyboardMarkup:
                 InlineKeyboardButton(
                     text="🎁 Пригласить друга",
                     callback_data=f"{PAYMENT_CALLBACK_PREFIX}:invite",
+                )
+            ],
+        ]
+    )
+
+
+def referral_keyboard(
+    referral_link: str,
+    language: str = "ru",
+) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=(
+                        "📤 Invite a friend"
+                        if language == "en"
+                        else "📤 Пригласить друга"
+                    ),
+                    url=build_referral_share_url(
+                        referral_link,
+                        language,
+                    ),
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text=(
+                        "📋 Copy link"
+                        if language == "en"
+                        else "📋 Скопировать ссылку"
+                    ),
+                    callback_data=REFERRAL_COPY_CALLBACK,
                 )
             ],
         ]

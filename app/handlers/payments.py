@@ -14,7 +14,7 @@ from aiogram.types import (
 
 from app.config import Settings
 from app.database import Database
-from app.keyboards import PAYMENT_CALLBACK_PREFIX
+from app.keyboards import PAYMENT_CALLBACK_PREFIX, referral_keyboard
 from app.plans import PREMIUM, PRO
 from app.referrals import build_referral_link, invite_message
 
@@ -258,7 +258,10 @@ async def premium_invite_callback(
     )
     link = build_referral_link(bot_username, callback.from_user.id)
     if isinstance(callback.message, Message):
-        await callback.message.answer(invite_message(link))
+        await callback.message.answer(
+            invite_message(link),
+            reply_markup=referral_keyboard(link),
+        )
         await callback.answer()
         return
     await callback.answer("Сообщение недоступно", show_alert=True)

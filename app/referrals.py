@@ -1,4 +1,19 @@
+from urllib.parse import urlencode
+
+
 REFERRAL_REWARD_DAYS = 3
+REFERRAL_COPY_CALLBACK = "referral:copy"
+REFERRAL_COPY_HEADER = "📋 Ваша ссылка для копирования:"
+RU_INVITE_SHARE_TEXT = (
+    "🎙 Попробуй VoiceText AI — бот расшифровывает голосовые сообщения, "
+    "исправляет пунктуацию и помогает оформить текст.\n\n"
+    "По моей ссылке ты можешь запустить бота:"
+)
+EN_INVITE_SHARE_TEXT = (
+    "🎙 Try VoiceText AI — it transcribes voice messages, fixes punctuation "
+    "and helps format text.\n\n"
+    "Start the bot using my link:"
+)
 
 
 def build_referral_link(bot_username: str, user_id: int) -> str:
@@ -16,6 +31,23 @@ def parse_referral_payload(payload: str | None) -> int | None:
     except ValueError:
         return None
     return user_id if user_id > 0 else None
+
+
+def build_referral_share_url(
+    referral_link: str,
+    language: str = "ru",
+) -> str:
+    invite_text = (
+        EN_INVITE_SHARE_TEXT
+        if language == "en"
+        else RU_INVITE_SHARE_TEXT
+    )
+    return "https://t.me/share/url?" + urlencode(
+        {
+            "url": referral_link,
+            "text": invite_text,
+        }
+    )
 
 
 def invite_message(referral_link: str) -> str:

@@ -16,17 +16,31 @@ from app.handlers.commands import (
     PREMIUM_TEXT,
     REFERRAL_REWARD_NOTIFICATION,
     history_command,
+    copy_referral_link,
     invite_command,
     limits_text,
     premium_command,
     start_command,
 )
-from app.keyboards import premium_keyboard
+from app.keyboards import premium_keyboard, referral_keyboard
 from app.plans import FREE, PREMIUM, PRO
-from app.referrals import build_referral_link, invite_message
+from app.referrals import (
+    REFERRAL_COPY_CALLBACK,
+    REFERRAL_COPY_HEADER,
+    build_referral_link,
+    invite_message,
+)
 
 
 class CommandTextTests(unittest.TestCase):
+    def test_referral_reward_notification_is_ru_and_actionable(self) -> None:
+        self.assertEqual(
+            REFERRAL_REWARD_NOTIFICATION,
+            "🎉 По вашей ссылке зарегистрировался новый пользователь!\n\n"
+            "Вам начислен Premium на 3 дня.\n\n"
+            "Проверить лимиты можно командой /limits.",
+        )
+
     def test_premium_text_contains_all_plans(self) -> None:
         self.assertIn("🆓 Free", PREMIUM_TEXT)
         self.assertIn("⭐ Pro — $4.99/мес", PREMIUM_TEXT)
@@ -182,7 +196,62 @@ class CommandHandlerTests(unittest.IsolatedAsyncioTestCase):
         )
 
         link = build_referral_link("VoiceTextAIBot", 12345)
-        message.answer.assert_awaited_once_with(invite_message(link))
+        message.answer.assert_awaited_once_with(
+            invite_message(link),
+            reply_markup=referral_keyboard(link),
+        )
+
+    async def test_copy_referral_link_sends_clean_link_message(self) -> None:
+        link = build_referral_link("VoiceTextAIBot", 12345)
+        callback = SimpleNamespace(
+            data=REFERRAL_COPY_CALLBACK,
+            from_user=SimpleNamespace(
+                id=12345,
+                username="user",
+                first_name="User",
+                last_name=None,
+                full_name="User",
+            ),
+            message=SimpleNamespace(answer=AsyncMock()),
+            answer=AsyncMock(),
+        )
+        db = SimpleNamespace(
+            upsert_user=AsyncMock(
+                return_value=User(
+                    id=1,
+                    telegram_id=12345,
+                    plan=FREE,
+                )
+            )
+        )
+
+        await copy_referral_link(
+            callback,
+            db,
+            bot_username="VoiceTextAIBot",
+        )
+
+        callback.message.answer.assert_awaited_once_with(
+            f"{REFERRAL_COPY_HEADER}\n\n{link}"
+        )
+        callback.answer.assert_awaited_once_with()
+
+    def test_referral_keyboard_has_share_and_copy_buttons(self) -> None:
+        link = build_referral_link("VoiceTextAIBot", 12345)
+        keyboard = referral_keyboard(link)
+        share_button = keyboard.inline_keyboard[0][0]
+        copy_button = keyboard.inline_keyboard[1][0]
+
+        self.assertEqual(share_button.text, "📤 Пригласить друга")
+        self.assertTrue(share_button.url.startswith(
+            "https://t.me/share/url?"
+        ))
+        self.assertIn("ref_12345", share_button.url)
+        self.assertEqual(copy_button.text, "📋 Скопировать ссылку")
+        self.assertEqual(
+            copy_button.callback_data,
+            REFERRAL_COPY_CALLBACK,
+        )
 
     async def test_premium_command_shows_buttons(self) -> None:
         message = SimpleNamespace(

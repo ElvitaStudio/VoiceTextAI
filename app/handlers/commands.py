@@ -1,19 +1,21 @@
 import logging
 
-from aiogram import Bot, Router
+from aiogram import Bot, F, Router
 from aiogram.filters import Command, CommandStart
 from aiogram.filters.command import CommandObject
-from aiogram.types import Message
+from aiogram.types import CallbackQuery, Message
 
 from app.admin import admin_users_chunks
 from app.config import Settings
 from app.database import AIUsage, Database, Usage, User
 from app.history import history_chunks
-from app.keyboards import premium_keyboard
+from app.keyboards import premium_keyboard, referral_keyboard
 from app.middlewares import telegram_profile
 from app.plans import FREE, PREMIUM, PRO, format_duration, get_plan_limits
 from app.referrals import (
     REFERRAL_REWARD_DAYS,
+    REFERRAL_COPY_CALLBACK,
+    REFERRAL_COPY_HEADER,
     build_referral_link,
     invite_message,
     parse_referral_payload,
@@ -24,8 +26,9 @@ router = Router(name="commands")
 logger = logging.getLogger(__name__)
 
 REFERRAL_REWARD_NOTIFICATION = (
-    "🎁 По вашей ссылке зарегистрировался новый пользователь!\n\n"
-    "Вам начислен Premium на 3 дня."
+    "🎉 По вашей ссылке зарегистрировался новый пользователь!\n\n"
+    "Вам начислен Premium на 3 дня.\n\n"
+    "Проверить лимиты можно командой /limits."
 )
 
 PREMIUM_TEXT = """VoiceText AI v1.3.1
@@ -247,7 +250,36 @@ async def invite_command(
 ) -> None:
     user = await _current_user(message, db, profile_user)
     link = build_referral_link(bot_username, user.telegram_id)
-    await message.answer(invite_message(link))
+    await message.answer(
+        invite_message(link),
+        reply_markup=referral_keyboard(link),
+    )
+
+
+@router.callback_query(F.data == REFERRAL_COPY_CALLBACK)
+async def copy_referral_link(
+    callback: CallbackQuery,
+    db: Database,
+    bot_username: str,
+) -> None:
+    if callback.from_user is None:
+        await callback.answer("Пользователь не найден", show_alert=True)
+        return
+    user = await db.upsert_user(
+        telegram_id=callback.from_user.id,
+        username=callback.from_user.username,
+        first_name=callback.from_user.first_name,
+        last_name=callback.from_user.last_name,
+        full_name=callback.from_user.full_name,
+    )
+    if callback.message is None or not hasattr(callback.message, "answer"):
+        await callback.answer("Сообщение недоступно", show_alert=True)
+        return
+    link = build_referral_link(bot_username, user.telegram_id)
+    await callback.message.answer(
+        f"{REFERRAL_COPY_HEADER}\n\n{link}"
+    )
+    await callback.answer()
 
 
 @router.message(Command("limits"))
