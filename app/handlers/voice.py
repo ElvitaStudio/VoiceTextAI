@@ -47,9 +47,11 @@ async def handle_voice(
 
     user = await get_user(message, db, profile_user)
     duration = message.voice.duration
-    plan_limits = get_plan_limits(user.plan)
+    plan_limits = get_plan_limits(user.effective_plan)
 
     if (
+        not user.is_admin
+        and
         plan_limits.max_voice_duration is not None
         and duration > plan_limits.max_voice_duration
     ):

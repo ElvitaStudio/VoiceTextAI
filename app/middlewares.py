@@ -40,8 +40,9 @@ class UserProfileMiddleware(BaseMiddleware):
         event: Message,
         data: dict[str, Any],
     ) -> Any:
-        text = event.text or ""
-        is_start = text.split(maxsplit=1)[0].split("@", 1)[0] == "/start"
+        text_parts = (event.text or "").split(maxsplit=1)
+        command = text_parts[0].split("@", 1)[0] if text_parts else ""
+        is_start = command == "/start"
         if event.from_user is not None and not event.from_user.is_bot and not is_start:
             db: Database | None = data.get("db")
             if db is not None:

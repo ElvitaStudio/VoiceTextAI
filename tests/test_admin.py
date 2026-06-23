@@ -170,6 +170,72 @@ class ProfileMiddlewareTests(unittest.IsolatedAsyncioTestCase):
         await middleware(handler, event, {"db": db})
 
         db.upsert_user.assert_not_awaited()
+        handler.assert_awaited_once()
+
+    async def test_start_payload_is_preserved_for_handler(self) -> None:
+        middleware = UserProfileMiddleware()
+        handler = AsyncMock(return_value="started")
+        db = SimpleNamespace(upsert_user=AsyncMock())
+        event = SimpleNamespace(
+            text="/start@VoiceTextAIBot ref_123",
+            from_user=SimpleNamespace(id=42, is_bot=False),
+        )
+
+        result = await middleware(handler, event, {"db": db})
+
+        self.assertEqual(result, "started")
+        db.upsert_user.assert_not_awaited()
+        handler.assert_awaited_once_with(event, {"db": db})
+
+    async def test_message_without_text_updates_profile(self) -> None:
+        middleware = UserProfileMiddleware()
+        handler = AsyncMock(return_value="voice-handled")
+        db = SimpleNamespace(
+            upsert_user=AsyncMock(
+                return_value=User(id=1, telegram_id=42, plan=FREE)
+            )
+        )
+        event = SimpleNamespace(
+            text=None,
+            from_user=SimpleNamespace(
+                id=42,
+                is_bot=False,
+                username="voice_user",
+                first_name="Voice",
+                last_name="User",
+            ),
+        )
+
+        result = await middleware(handler, event, {"db": db})
+
+        self.assertEqual(result, "voice-handled")
+        db.upsert_user.assert_awaited_once()
+        handler.assert_awaited_once()
+
+    async def test_whitespace_message_does_not_crash(self) -> None:
+        middleware = UserProfileMiddleware()
+        handler = AsyncMock(return_value="handled")
+        db = SimpleNamespace(
+            upsert_user=AsyncMock(
+                return_value=User(id=1, telegram_id=42, plan=FREE)
+            )
+        )
+        event = SimpleNamespace(
+            text="   \n\t",
+            from_user=SimpleNamespace(
+                id=42,
+                is_bot=False,
+                username=None,
+                first_name="Blank",
+                last_name=None,
+            ),
+        )
+
+        result = await middleware(handler, event, {"db": db})
+
+        self.assertEqual(result, "handled")
+        db.upsert_user.assert_awaited_once()
+        handler.assert_awaited_once()
 
 
 class AdminDatabaseTests(unittest.IsolatedAsyncioTestCase):

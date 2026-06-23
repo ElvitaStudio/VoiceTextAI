@@ -23,7 +23,10 @@ async def set_commands(bot: Bot) -> None:
 
 async def run_bot() -> None:
     settings = load_settings()
-    db = Database(settings.database_path)
+    db = Database(
+        settings.database_path,
+        admin_ids=settings.admin_ids,
+    )
     await db.initialize()
 
     bot = Bot(token=settings.telegram_bot_token)

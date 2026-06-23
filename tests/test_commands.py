@@ -1,4 +1,6 @@
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -8,14 +10,16 @@ from aiogram.methods import TelegramMethod
 from aiogram.types import Chat, Message, Update
 from aiogram.types import User as TelegramUser
 
-from app.database import AIUsage, Usage, User
+from app.database import AIUsage, Database, Usage, User
 from app.handlers import get_router
 from app.handlers.commands import (
     PREMIUM_TEXT,
+    REFERRAL_REWARD_NOTIFICATION,
     history_command,
     invite_command,
     limits_text,
     premium_command,
+    start_command,
 )
 from app.keyboards import premium_keyboard
 from app.plans import FREE, PREMIUM, PRO
@@ -115,6 +119,42 @@ class CommandTextTests(unittest.TestCase):
 
 
 class CommandHandlerTests(unittest.IsolatedAsyncioTestCase):
+    async def test_notification_failure_does_not_rollback_reward(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            db = Database(Path(temp_dir) / "notification.db")
+            await db.initialize()
+            inviter = await db.upsert_user(111, "inviter", "Inviter")
+            message = SimpleNamespace(
+                from_user=SimpleNamespace(
+                    id=222,
+                    username="invitee",
+                    first_name="Invitee",
+                    last_name=None,
+                ),
+                answer=AsyncMock(),
+            )
+            command = SimpleNamespace(args="ref_111")
+            bot = SimpleNamespace(
+                send_message=AsyncMock(
+                    side_effect=RuntimeError("blocked")
+                )
+            )
+
+            with self.assertLogs(
+                "app.handlers.commands",
+                level="WARNING",
+            ):
+                await start_command(message, command, db, bot)
+
+            rewarded = await db.upsert_user(111, "inviter", "Inviter")
+            self.assertEqual(rewarded.plan, PREMIUM)
+            self.assertEqual(await db.get_referral_count(inviter.id), 1)
+            bot.send_message.assert_awaited_once_with(
+                111,
+                REFERRAL_REWARD_NOTIFICATION,
+            )
+            message.answer.assert_awaited_once()
+
     async def test_invite_command_works(self) -> None:
         message = SimpleNamespace(
             from_user=SimpleNamespace(
@@ -214,6 +254,35 @@ class TestSession(BaseSession):
 
 
 class InviteRoutingTests(unittest.IsolatedAsyncioTestCase):
+    async def test_start_with_referral_payload_creates_reward(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            db = Database(Path(temp_dir) / "referral.db")
+            await db.initialize()
+            inviter = await db.upsert_user(111, "inviter", "Inviter")
+            message = SimpleNamespace(
+                from_user=SimpleNamespace(
+                    id=222,
+                    username="invitee",
+                    first_name="Invitee",
+                    last_name=None,
+                ),
+                answer=AsyncMock(),
+            )
+            command = SimpleNamespace(args="ref_111")
+            bot = SimpleNamespace(send_message=AsyncMock())
+
+            await start_command(message, command, db, bot)
+
+            invitee = await db.upsert_user(222, "invitee", "Invitee")
+            rewarded = await db.upsert_user(111, "inviter", "Inviter")
+            self.assertEqual(invitee.referred_by, inviter.id)
+            self.assertEqual(rewarded.plan, PREMIUM)
+            self.assertEqual(await db.get_referral_count(inviter.id), 1)
+            bot.send_message.assert_awaited_once_with(
+                111,
+                REFERRAL_REWARD_NOTIFICATION,
+            )
+
     async def test_invite_reaches_commands_router(self) -> None:
         session = TestSession()
         bot = Bot("123456:TEST_TOKEN", session=session)

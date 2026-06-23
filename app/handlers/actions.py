@@ -20,6 +20,7 @@ from app.services.openai_service import ACTION_INSTRUCTIONS, OpenAIService
 
 router = Router(name="text_actions")
 logger = logging.getLogger(__name__)
+COPY_HEADER = "📋 Текст для копирования:"
 
 
 def parse_callback_data(data: str | None) -> tuple[str, int] | None:
@@ -84,6 +85,12 @@ async def send_result(
     await target.answer(chunks[-1], reply_markup=keyboard)
 
 
+async def send_copyable_text(target: Message, text: str) -> None:
+    await target.answer(COPY_HEADER)
+    for chunk in split_text(text.strip()):
+        await target.answer(chunk)
+
+
 AI_LIMIT_MESSAGE = """🔒 Лимит AI-функций исчерпан.
 
 ⭐ Pro — 10 AI-функций в сутки.
@@ -133,8 +140,10 @@ async def handle_text_action(
 
     if action == "copy":
         await callback.answer("Отправляю текст для копирования")
-        for chunk in split_text(stored_message.formatted_text):
-            await callback.message.answer(chunk)
+        await send_copyable_text(
+            callback.message,
+            stored_message.formatted_text,
+        )
         return
 
     if action == "translate":

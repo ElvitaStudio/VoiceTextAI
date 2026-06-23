@@ -1,10 +1,14 @@
 import unittest
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 from app.handlers.actions import (
     AI_LIMIT_MESSAGE,
+    COPY_HEADER,
     TRANSLATION_LIMIT_MESSAGE,
     parse_callback_data,
     parse_language_callback,
+    send_copyable_text,
 )
 from app.keyboards import (
     text_actions_keyboard,
@@ -86,6 +90,39 @@ class CallbackTests(unittest.TestCase):
             "⭐ Pro — 5 переводов в сутки.\n"
             "👑 Premium — безлимитный перевод.\n\n"
             "Подробнее: /premium",
+        )
+
+
+class CopyActionTests(unittest.IsolatedAsyncioTestCase):
+    async def test_copy_button_sends_clean_copyable_text(self) -> None:
+        target = SimpleNamespace(answer=AsyncMock())
+
+        await send_copyable_text(target, "  Чистый текст результата  ")
+
+        self.assertEqual(
+            [call.args[0] for call in target.answer.await_args_list],
+            [COPY_HEADER, "Чистый текст результата"],
+        )
+        for call in target.answer.await_args_list:
+            self.assertNotIn("reply_markup", call.kwargs)
+
+    async def test_long_copy_text_is_split_safely(self) -> None:
+        target = SimpleNamespace(answer=AsyncMock())
+        text = "длинный текст " * 1000
+
+        await send_copyable_text(target, text)
+
+        messages = [
+            call.args[0] for call in target.answer.await_args_list
+        ]
+        self.assertEqual(messages[0], COPY_HEADER)
+        self.assertGreater(len(messages), 2)
+        self.assertTrue(
+            all(len(chunk) <= 4096 for chunk in messages[1:])
+        )
+        self.assertEqual(
+            " ".join(messages[1:]).split(),
+            text.split(),
         )
 
 

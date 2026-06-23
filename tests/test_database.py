@@ -129,6 +129,95 @@ class DatabaseLimitTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(reserved)
         self.assertEqual(used, 1000)
 
+    async def test_admin_has_unlimited_access_without_spending_limits(self) -> None:
+        admin_db = Database(
+            Path(self.temp_dir.name) / "admin.db",
+            admin_ids=frozenset({777}),
+        )
+        await admin_db.initialize()
+        admin = await admin_db.upsert_user(777, "admin", "Admin")
+
+        self.assertEqual(admin.plan, FREE)
+        self.assertEqual(admin.effective_plan, PREMIUM)
+        self.assertTrue(admin.is_premium)
+
+        for _ in range(10):
+            self.assertEqual(
+                await admin_db.reserve_usage(admin),
+                (True, 0),
+            )
+            self.assertTrue(await admin_db.reserve_ai_action(admin))
+            self.assertTrue(await admin_db.reserve_translation(admin))
+
+        voice_usage = await admin_db.get_usage(admin)
+        ai_usage = await admin_db.get_ai_usage(admin)
+        self.assertEqual(voice_usage.used, 0)
+        self.assertIsNone(voice_usage.limit)
+        self.assertEqual(ai_usage.ai_actions_used, 0)
+        self.assertIsNone(ai_usage.ai_actions_limit)
+        self.assertEqual(ai_usage.translations_used, 0)
+        self.assertIsNone(ai_usage.translations_limit)
+
+        now = admin_db._now()
+        rows = [
+            (
+                admin.id,
+                5000 + index,
+                f"admin-file-{index}",
+                10,
+                f"raw-{index}",
+                f"formatted-{index}",
+                now,
+                now,
+            )
+            for index in range(105)
+        ]
+        async with admin_db._connect() as connection:
+            await connection.executemany(
+                """
+                INSERT INTO messages (
+                    user_id,
+                    telegram_message_id,
+                    telegram_file_id,
+                    duration_seconds,
+                    raw_text,
+                    formatted_text,
+                    status,
+                    created_at,
+                    completed_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, 'completed', ?, ?)
+                """,
+                rows,
+            )
+            await connection.commit()
+        self.assertEqual(
+            len(await admin_db.get_message_history(admin)),
+            105,
+        )
+
+    async def test_regular_users_keep_normal_limits(self) -> None:
+        regular_db = Database(
+            Path(self.temp_dir.name) / "regular.db",
+            admin_ids=frozenset({777}),
+        )
+        await regular_db.initialize()
+        regular = await regular_db.upsert_user(778, "user", "User")
+
+        for expected_used in range(1, 6):
+            self.assertEqual(
+                await regular_db.reserve_usage(regular),
+                (True, expected_used),
+            )
+        self.assertEqual(
+            await regular_db.reserve_usage(regular),
+            (False, 5),
+        )
+        self.assertTrue(await regular_db.reserve_ai_action(regular))
+        self.assertFalse(await regular_db.reserve_ai_action(regular))
+        self.assertTrue(await regular_db.reserve_translation(regular))
+        self.assertFalse(await regular_db.reserve_translation(regular))
+
     async def test_usage_tables_are_separate(self) -> None:
         async with self.db._connect() as connection:
             cursor = await connection.execute(
@@ -171,6 +260,10 @@ class DatabaseLimitTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertTrue(result.created)
         self.assertTrue(result.referral_rewarded)
+        self.assertEqual(
+            result.rewarded_referrer_telegram_id,
+            inviter.telegram_id,
+        )
         self.assertEqual(result.user.plan, FREE)
         self.assertEqual(result.user.referred_by, inviter.id)
         self.assertEqual(await self.db.get_referral_count(inviter.id), 1)
@@ -192,6 +285,141 @@ class DatabaseLimitTests(unittest.IsolatedAsyncioTestCase):
             premium_until,
             before + timedelta(days=3, minutes=1),
         )
+        self.assertEqual(
+            rewarded_inviter.plan_until,
+            rewarded_inviter.premium_until,
+        )
+
+    async def test_active_premium_referral_extends_three_days(self) -> None:
+        current_until = datetime.now(timezone.utc) + timedelta(days=10)
+        async with self.db._connect() as connection:
+            await connection.execute(
+                """
+                UPDATE users
+                SET plan = 'premium',
+                    is_premium = 1,
+                    plan_until = ?,
+                    premium_until = ?
+                WHERE id = ?
+                """,
+                (
+                    current_until.isoformat(),
+                    current_until.isoformat(),
+                    self.user.id,
+                ),
+            )
+            await connection.commit()
+
+        result = await self.db.register_user(
+            telegram_id=457,
+            username="premium_friend",
+            first_name="Friend",
+            referred_by_telegram_id=self.user.telegram_id,
+        )
+        rewarded = await self.db.upsert_user(123, "tester", "Test")
+
+        self.assertTrue(result.referral_rewarded)
+        extended_until = datetime.fromisoformat(rewarded.plan_until)
+        self.assertAlmostEqual(
+            (extended_until - current_until).total_seconds(),
+            timedelta(days=3).total_seconds(),
+            delta=2,
+        )
+
+    async def test_active_pro_referral_upgrades_and_extends(self) -> None:
+        current_until = datetime.now(timezone.utc) + timedelta(days=8)
+        async with self.db._connect() as connection:
+            await connection.execute(
+                """
+                UPDATE users
+                SET plan = 'pro',
+                    is_premium = 0,
+                    plan_until = ?,
+                    premium_until = NULL
+                WHERE id = ?
+                """,
+                (current_until.isoformat(), self.user.id),
+            )
+            await connection.commit()
+
+        result = await self.db.register_user(
+            telegram_id=458,
+            username="pro_friend",
+            first_name="Friend",
+            referred_by_telegram_id=self.user.telegram_id,
+        )
+        rewarded = await self.db.upsert_user(123, "tester", "Test")
+
+        self.assertTrue(result.referral_rewarded)
+        self.assertEqual(rewarded.plan, PREMIUM)
+        extended_until = datetime.fromisoformat(rewarded.plan_until)
+        self.assertAlmostEqual(
+            (extended_until - current_until).total_seconds(),
+            timedelta(days=3).total_seconds(),
+            delta=2,
+        )
+
+    async def test_expired_premium_referral_starts_from_now(self) -> None:
+        expired = datetime.now(timezone.utc) - timedelta(days=2)
+        async with self.db._connect() as connection:
+            await connection.execute(
+                """
+                UPDATE users
+                SET plan = 'premium',
+                    is_premium = 1,
+                    plan_until = ?,
+                    premium_until = ?
+                WHERE id = ?
+                """,
+                (
+                    expired.isoformat(),
+                    expired.isoformat(),
+                    self.user.id,
+                ),
+            )
+            await connection.commit()
+
+        before = datetime.now(timezone.utc)
+        result = await self.db.register_user(
+            telegram_id=459,
+            username="expired_friend",
+            first_name="Friend",
+            referred_by_telegram_id=self.user.telegram_id,
+        )
+        rewarded = await self.db.upsert_user(123, "tester", "Test")
+
+        self.assertTrue(result.referral_rewarded)
+        reward_until = datetime.fromisoformat(rewarded.plan_until)
+        self.assertGreaterEqual(
+            reward_until,
+            before + timedelta(days=3) - timedelta(seconds=2),
+        )
+        self.assertLess(
+            reward_until,
+            before + timedelta(days=3, minutes=1),
+        )
+
+    async def test_existing_user_cannot_trigger_referral_reward(self) -> None:
+        existing = await self.db.register_user(
+            telegram_id=460,
+            username="existing",
+            first_name="Existing",
+        )
+        before = await self.db.upsert_user(123, "tester", "Test")
+
+        repeated = await self.db.register_user(
+            telegram_id=460,
+            username="existing",
+            first_name="Existing",
+            referred_by_telegram_id=self.user.telegram_id,
+        )
+        after = await self.db.upsert_user(123, "tester", "Test")
+
+        self.assertTrue(existing.created)
+        self.assertFalse(repeated.created)
+        self.assertFalse(repeated.referral_rewarded)
+        self.assertEqual(before.plan_until, after.plan_until)
+        self.assertEqual(await self.db.get_referral_count(self.user.id), 0)
 
     async def test_repeated_start_does_not_reward_twice(self) -> None:
         first = await self.db.register_user(

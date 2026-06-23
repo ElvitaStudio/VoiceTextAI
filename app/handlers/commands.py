@@ -1,4 +1,6 @@
-from aiogram import Router
+import logging
+
+from aiogram import Bot, Router
 from aiogram.filters import Command, CommandStart
 from aiogram.filters.command import CommandObject
 from aiogram.types import Message
@@ -19,6 +21,12 @@ from app.referrals import (
 
 
 router = Router(name="commands")
+logger = logging.getLogger(__name__)
+
+REFERRAL_REWARD_NOTIFICATION = (
+    "🎁 По вашей ссылке зарегистрировался новый пользователь!\n\n"
+    "Вам начислен Premium на 3 дня."
+)
 
 PREMIUM_TEXT = """VoiceText AI v1.3.1
 
@@ -82,8 +90,17 @@ def limits_text(
     voice_usage: Usage,
     ai_usage: AIUsage,
 ) -> str:
-    limits = get_plan_limits(user.plan)
-    if user.plan == PREMIUM:
+    limits = get_plan_limits(user.effective_plan)
+    if user.is_admin:
+        return (
+            "📊 Ваш доступ: Администратор ⭐\n\n"
+            "🎙 Голосовые: без ограничений\n"
+            "⏳ Максимальная длина: без ограничений\n"
+            "✨ AI-функции: без ограничений\n"
+            "🌍 Переводы: без ограничений\n"
+            "📚 История: без ограничений"
+        )
+    if user.effective_plan == PREMIUM:
         return (
             "📊 Ваш тариф: Premium ⭐\n\n"
             f"🎙 Использовано сегодня: "
@@ -102,7 +119,7 @@ def limits_text(
         f"{format_duration(limits.max_voice_duration)}\n"
         f"Осталось голосовых: {voice_usage.remaining}\n\n"
     )
-    if user.plan == FREE:
+    if user.effective_plan == FREE:
         return (
             base
             + f"✨ AI-функции сегодня: "
@@ -116,7 +133,7 @@ def limits_text(
             f"Осталось переводов: "
             f"{ai_usage.translations_remaining}"
         )
-    if user.plan == PRO:
+    if user.effective_plan == PRO:
         return (
             base
             + f"✨ AI-функции сегодня: "
@@ -130,7 +147,7 @@ def limits_text(
             f"Осталось переводов: "
             f"{ai_usage.translations_remaining}"
         )
-    raise ValueError(f"Unsupported plan: {user.plan}")
+    raise ValueError(f"Unsupported plan: {user.effective_plan}")
 
 
 @router.message(CommandStart())
@@ -138,10 +155,11 @@ async def start_command(
     message: Message,
     command: CommandObject,
     db: Database,
+    bot: Bot | None = None,
 ) -> None:
     telegram_id, username, first_name, last_name, full_name = _user_data(message)
     referred_by = parse_referral_payload(command.args)
-    await db.register_user(
+    registration = await db.register_user(
         telegram_id=telegram_id,
         username=username,
         first_name=first_name,
@@ -150,6 +168,31 @@ async def start_command(
         referred_by_telegram_id=referred_by,
         reward_days=REFERRAL_REWARD_DAYS,
     )
+    if (
+        registration.referral_rewarded
+        and registration.rewarded_referrer_telegram_id is not None
+    ):
+        if bot is None:
+            logger.warning(
+                "Referral reward saved, but bot is unavailable: "
+                "referrer=%s invitee=%s",
+                registration.rewarded_referrer_telegram_id,
+                telegram_id,
+            )
+        else:
+            try:
+                await bot.send_message(
+                    registration.rewarded_referrer_telegram_id,
+                    REFERRAL_REWARD_NOTIFICATION,
+                )
+            except Exception:
+                logger.warning(
+                    "Referral reward saved, but notification failed: "
+                    "referrer=%s invitee=%s",
+                    registration.rewarded_referrer_telegram_id,
+                    telegram_id,
+                    exc_info=True,
+                )
     await message.answer(
         "👋 Привет! Я VoiceText AI.\n\n"
         "Отправь мне голосовое сообщение — я расшифрую его, "

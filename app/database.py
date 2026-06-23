@@ -5,10 +5,14 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from collections.abc import AsyncIterator
+import logging
 
 import aiosqlite
 
 from app.plans import FREE, PREMIUM, PRO, VALID_PLANS, get_plan_limits
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -19,10 +23,15 @@ class User:
     referred_by: int | None = None
     premium_until: str | None = None
     plan_until: str | None = None
+    is_admin: bool = False
 
     @property
     def is_premium(self) -> bool:
-        return self.plan == PREMIUM
+        return self.is_admin or self.plan == PREMIUM
+
+    @property
+    def effective_plan(self) -> str:
+        return PREMIUM if self.is_admin else self.plan
 
 
 @dataclass(frozen=True, slots=True)
@@ -160,6 +169,8 @@ class RegistrationResult:
     user: User
     created: bool
     referral_rewarded: bool
+    rewarded_referrer_telegram_id: int | None = None
+    reward_until: str | None = None
 
 
 class Database:
@@ -167,10 +178,12 @@ class Database:
         self,
         path: Path,
         daily_free_limit: int | None = None,
+        admin_ids: frozenset[int] = frozenset(),
     ) -> None:
         self.path = path
         # Kept for compatibility with the existing constructor.
         self.daily_free_limit = daily_free_limit
+        self.admin_ids = admin_ids
 
     async def initialize(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -482,6 +495,11 @@ class Database:
                     ),
                 )
                 await db.commit()
+                if referred_by_telegram_id is not None:
+                    logger.info(
+                        "Referral ignored for existing user %s",
+                        telegram_id,
+                    )
                 return RegistrationResult(
                     user=self._row_to_user(existing),
                     created=False,
@@ -520,14 +538,23 @@ class Database:
             )
             user_id = int(cursor.lastrowid)
             referral_rewarded = False
+            rewarded_referrer_telegram_id: int | None = None
+            reward_until: str | None = None
 
-            if (
-                referred_by_telegram_id is not None
-                and referred_by_telegram_id != telegram_id
-            ):
+            if referred_by_telegram_id == telegram_id:
+                logger.info(
+                    "Self-referral rejected for Telegram user %s",
+                    telegram_id,
+                )
+            elif referred_by_telegram_id is not None:
                 cursor = await db.execute(
                     """
-                    SELECT id, premium_until
+                    SELECT
+                        id,
+                        telegram_id,
+                        plan,
+                        plan_until,
+                        premium_until
                     FROM users
                     WHERE telegram_id = ?
                     """,
@@ -548,17 +575,27 @@ class Database:
                         (inviter["id"], user_id, reward_days, now),
                     )
                     if cursor.rowcount == 1:
-                        premium_until = self._extend_premium_until(
+                        reward_until = self._extend_referral_until(
+                            inviter["plan_until"],
                             inviter["premium_until"],
                             reward_days,
                         )
                         await db.execute(
                             """
                             UPDATE users
-                            SET premium_until = ?, updated_at = ?
+                            SET plan = 'premium',
+                                is_premium = 1,
+                                plan_until = ?,
+                                premium_until = ?,
+                                updated_at = ?
                             WHERE id = ?
                             """,
-                            (premium_until, now, inviter["id"]),
+                            (
+                                reward_until,
+                                reward_until,
+                                now,
+                                inviter["id"],
+                            ),
                         )
                         await db.execute(
                             """
@@ -569,6 +606,27 @@ class Database:
                             (inviter["id"], now, user_id),
                         )
                         referral_rewarded = True
+                        rewarded_referrer_telegram_id = int(
+                            inviter["telegram_id"]
+                        )
+                        logger.info(
+                            "Referral rewarded: inviter=%s invitee=%s "
+                            "premium_until=%s",
+                            rewarded_referrer_telegram_id,
+                            telegram_id,
+                            reward_until,
+                        )
+                    else:
+                        logger.info(
+                            "Duplicate referral ignored: invitee=%s",
+                            telegram_id,
+                        )
+                else:
+                    logger.info(
+                        "Referral inviter not found: inviter=%s invitee=%s",
+                        referred_by_telegram_id,
+                        telegram_id,
+                    )
 
             cursor = await db.execute(
                 """
@@ -594,6 +652,10 @@ class Database:
             user=self._row_to_user(row),
             created=True,
             referral_rewarded=referral_rewarded,
+            rewarded_referrer_telegram_id=(
+                rewarded_referrer_telegram_id
+            ),
+            reward_until=reward_until,
         )
 
     def _row_to_user(self, row: aiosqlite.Row) -> User:
@@ -622,6 +684,7 @@ class Database:
             referred_by=row["referred_by"],
             premium_until=premium_until,
             plan_until=plan_until,
+            is_admin=row["telegram_id"] in self.admin_ids,
         )
 
     @staticmethod
@@ -650,6 +713,27 @@ class Database:
                     base = current
             except ValueError:
                 pass
+        return (base + timedelta(days=reward_days)).isoformat()
+
+    @staticmethod
+    def _extend_referral_until(
+        plan_until: str | None,
+        premium_until: str | None,
+        reward_days: int,
+    ) -> str:
+        now = datetime.now(timezone.utc)
+        base = now
+        for value in (plan_until, premium_until):
+            if not value:
+                continue
+            try:
+                current = datetime.fromisoformat(value)
+            except ValueError:
+                continue
+            if current.tzinfo is None:
+                current = current.replace(tzinfo=timezone.utc)
+            if current > base:
+                base = current
         return (base + timedelta(days=reward_days)).isoformat()
 
     @staticmethod
@@ -1202,7 +1286,9 @@ class Database:
         )
 
     async def reserve_usage(self, user: User) -> tuple[bool, int]:
-        limit = get_plan_limits(user.plan).voice_daily_limit
+        if user.is_admin:
+            return True, 0
+        limit = get_plan_limits(user.effective_plan).voice_daily_limit
         if limit is None:
             return True, 0
 
@@ -1249,7 +1335,10 @@ class Database:
             return True, used
 
     async def release_usage(self, user: User) -> None:
-        if get_plan_limits(user.plan).voice_daily_limit is None:
+        if (
+            user.is_admin
+            or get_plan_limits(user.effective_plan).voice_daily_limit is None
+        ):
             return
 
         async with self._connect() as db:
@@ -1278,15 +1367,21 @@ class Database:
         used = int(row[0]) if row else 0
         return Usage(
             used=used,
-            limit=get_plan_limits(user.plan).voice_daily_limit,
-            plan=user.plan,
+            limit=(
+                None
+                if user.is_admin
+                else get_plan_limits(user.effective_plan).voice_daily_limit
+            ),
+            plan=user.effective_plan,
         )
 
     async def reserve_ai_action(
         self,
         user: User,
     ) -> bool:
-        limits = get_plan_limits(user.plan)
+        if user.is_admin:
+            return True
+        limits = get_plan_limits(user.effective_plan)
         limit = limits.ai_actions_daily_limit
         if limit is None:
             return True
@@ -1339,7 +1434,11 @@ class Database:
         self,
         user: User,
     ) -> None:
-        if get_plan_limits(user.plan).ai_actions_daily_limit is None:
+        if (
+            user.is_admin
+            or get_plan_limits(user.effective_plan).ai_actions_daily_limit
+            is None
+        ):
             return
 
         async with self._connect() as db:
@@ -1356,7 +1455,9 @@ class Database:
             await db.commit()
 
     async def reserve_translation(self, user: User) -> bool:
-        limit = get_plan_limits(user.plan).translations_daily_limit
+        if user.is_admin:
+            return True
+        limit = get_plan_limits(user.effective_plan).translations_daily_limit
         if limit is None:
             return True
 
@@ -1405,7 +1506,11 @@ class Database:
             return True
 
     async def release_translation(self, user: User) -> None:
-        if get_plan_limits(user.plan).translations_daily_limit is None:
+        if (
+            user.is_admin
+            or get_plan_limits(user.effective_plan).translations_daily_limit
+            is None
+        ):
             return
 
         async with self._connect() as db:
@@ -1442,14 +1547,18 @@ class Database:
             )
             translation_row = await cursor.fetchone()
 
-        limits = get_plan_limits(user.plan)
+        limits = get_plan_limits(user.effective_plan)
         return AIUsage(
             ai_actions_used=int(ai_row[0]) if ai_row else 0,
-            ai_actions_limit=limits.ai_actions_daily_limit,
+            ai_actions_limit=(
+                None if user.is_admin else limits.ai_actions_daily_limit
+            ),
             translations_used=(
                 int(translation_row[0]) if translation_row else 0
             ),
-            translations_limit=limits.translations_daily_limit,
+            translations_limit=(
+                None if user.is_admin else limits.translations_daily_limit
+            ),
         )
 
     async def set_user_plan(self, telegram_id: int, plan: str) -> None:
@@ -1568,11 +1677,15 @@ class Database:
         self,
         user: User,
     ) -> list[HistoryMessage]:
-        limit = get_plan_limits(user.plan).history_limit
+        limit = get_plan_limits(user.effective_plan).history_limit
+        limit_clause = "" if user.is_admin else "LIMIT ?"
+        params: tuple[int, ...] = (
+            (user.id,) if user.is_admin else (user.id, limit)
+        )
         async with self._connect() as db:
             db.row_factory = aiosqlite.Row
             cursor = await db.execute(
-                """
+                f"""
                 SELECT
                     COALESCE(completed_at, created_at) AS history_date,
                     formatted_text
@@ -1581,9 +1694,9 @@ class Database:
                   AND status = 'completed'
                   AND formatted_text IS NOT NULL
                 ORDER BY history_date DESC, id DESC
-                LIMIT ?
+                {limit_clause}
                 """,
-                (user.id, limit),
+                params,
             )
             rows = await cursor.fetchall()
 
