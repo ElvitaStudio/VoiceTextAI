@@ -1,5 +1,5 @@
 import unittest
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, quote, urlparse
 
 from app.referrals import (
     RU_INVITE_SHARE_TEXT,
@@ -30,10 +30,12 @@ class ReferralHelpersTests(unittest.TestCase):
         share_url = build_referral_share_url(link)
         parsed = urlparse(share_url)
         params = parse_qs(parsed.query)
+        encoded_link = quote(link, safe="")
 
         self.assertEqual(
             f"{parsed.scheme}://{parsed.netloc}{parsed.path}",
             "https://t.me/share/url",
         )
+        self.assertIn(f"url={encoded_link}", share_url)
         self.assertEqual(params["url"], [link])
         self.assertEqual(params["text"], [RU_INVITE_SHARE_TEXT])

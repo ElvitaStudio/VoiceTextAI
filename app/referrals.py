@@ -1,4 +1,4 @@
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 
 REFERRAL_REWARD_DAYS = 3
@@ -46,7 +46,8 @@ def build_referral_share_url(
         {
             "url": referral_link,
             "text": invite_text,
-        }
+        },
+        quote_via=quote,
     )
 
 

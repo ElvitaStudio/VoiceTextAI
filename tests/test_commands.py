@@ -2,12 +2,14 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
+from urllib.parse import quote
 from unittest.mock import AsyncMock
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.session.base import BaseSession
 from aiogram.methods import TelegramMethod
-from aiogram.types import Chat, Message, Update
+from aiogram.types import CallbackQuery, Chat, Message, Update
+from aiogram.types import InlineKeyboardMarkup
 from aiogram.types import User as TelegramUser
 
 from app.database import AIUsage, Database, Usage, User
@@ -200,6 +202,18 @@ class CommandHandlerTests(unittest.IsolatedAsyncioTestCase):
             invite_message(link),
             reply_markup=referral_keyboard(link),
         )
+        _args, kwargs = message.answer.await_args
+        keyboard = kwargs["reply_markup"]
+        self.assertIsInstance(keyboard, InlineKeyboardMarkup)
+        self.assertEqual(len(keyboard.inline_keyboard), 2)
+        self.assertEqual(
+            keyboard.inline_keyboard[0][0].text,
+            "📤 Пригласить друга",
+        )
+        self.assertEqual(
+            keyboard.inline_keyboard[1][0].text,
+            "📋 Скопировать ссылку",
+        )
 
     async def test_copy_referral_link_sends_clean_link_message(self) -> None:
         link = build_referral_link("VoiceTextAIBot", 12345)
@@ -241,12 +255,13 @@ class CommandHandlerTests(unittest.IsolatedAsyncioTestCase):
         keyboard = referral_keyboard(link)
         share_button = keyboard.inline_keyboard[0][0]
         copy_button = keyboard.inline_keyboard[1][0]
+        encoded_link = quote(link, safe="")
 
         self.assertEqual(share_button.text, "📤 Пригласить друга")
         self.assertTrue(share_button.url.startswith(
             "https://t.me/share/url?"
         ))
-        self.assertIn("ref_12345", share_button.url)
+        self.assertIn(f"url={encoded_link}", share_button.url)
         self.assertEqual(copy_button.text, "📋 Скопировать ссылку")
         self.assertEqual(
             copy_button.callback_data,
@@ -399,6 +414,20 @@ class InviteRoutingTests(unittest.IsolatedAsyncioTestCase):
             "https://t.me/VoiceTextAIBot?start=ref_12345",
             method.text,
         )
+        self.assertIsInstance(method.reply_markup, InlineKeyboardMarkup)
+        self.assertEqual(len(method.reply_markup.inline_keyboard), 2)
+        share_button = method.reply_markup.inline_keyboard[0][0]
+        copy_button = method.reply_markup.inline_keyboard[1][0]
+        self.assertEqual(share_button.text, "📤 Пригласить друга")
+        self.assertTrue(share_button.url.startswith(
+            "https://t.me/share/url?"
+        ))
+        self.assertIn(
+            "url=https%3A%2F%2Ft.me%2FVoiceTextAIBot%3Fstart%3Dref_12345",
+            share_button.url,
+        )
+        self.assertEqual(copy_button.text, "📋 Скопировать ссылку")
+        self.assertEqual(copy_button.callback_data, REFERRAL_COPY_CALLBACK)
 
         history_update = Update(
             update_id=2,
@@ -429,5 +458,53 @@ class InviteRoutingTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             session.methods[1].text,
             "📭 История пока пустая. Отправьте голосовое сообщение.",
+        )
+
+        callback_update = Update(
+            update_id=3,
+            callback_query=CallbackQuery(
+                id="copy-referral",
+                from_user=TelegramUser(
+                    id=12345,
+                    is_bot=False,
+                    first_name="User",
+                    username="user",
+                ),
+                chat_instance="private-chat",
+                data=REFERRAL_COPY_CALLBACK,
+                message=Message(
+                    message_id=10,
+                    date=1,
+                    chat=Chat(id=12345, type="private"),
+                    from_user=TelegramUser(
+                        id=999,
+                        is_bot=True,
+                        first_name="VoiceText AI",
+                        username="VoiceTextAIBot",
+                    ),
+                    text="invite",
+                ),
+            ),
+        )
+
+        await dispatcher.feed_update(
+            bot,
+            callback_update,
+            db=db,
+            bot_username="VoiceTextAIBot",
+            settings=SimpleNamespace(),
+            openai_service=SimpleNamespace(),
+        )
+
+        self.assertEqual(db.upsert_user.await_count, 3)
+        self.assertEqual(len(session.methods), 4)
+        self.assertEqual(
+            session.methods[2].text,
+            "📋 Ваша ссылка для копирования:\n\n"
+            "https://t.me/VoiceTextAIBot?start=ref_12345",
+        )
+        self.assertEqual(
+            session.methods[3].callback_query_id,
+            "copy-referral",
         )
         await bot.session.close()
