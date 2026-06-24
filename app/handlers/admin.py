@@ -1,7 +1,13 @@
 from __future__ import annotations
 
+import logging
+
+from aiogram import Bot
+from aiogram.exceptions import TelegramForbiddenError
 from aiogram import F, Router
 from aiogram.filters import Command
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message
 
 from app.admin import (
@@ -13,10 +19,12 @@ from app.admin import (
 )
 from app.admin_keyboards import (
     ADMIN_CALLBACK_PREFIX,
+    BROADCAST_CALLBACK_PREFIX,
     admin_back_keyboard,
     admin_dashboard_keyboard,
     admin_user_card_keyboard,
     admin_users_keyboard,
+    broadcast_confirm_keyboard,
 )
 from app.config import Settings
 from app.database import Database, User
@@ -26,6 +34,17 @@ from app.presentation import split_text
 
 router = Router(name="admin")
 ACCESS_DENIED = "⛔ У вас нет доступа."
+BROADCAST_WAITING_TEXT = (
+    "📣 Отправьте текст рассылки одним сообщением.\n\n"
+    "Для отмены нажмите /cancel."
+)
+BROADCAST_CANCELLED = "❌ Рассылка отменена."
+logger = logging.getLogger(__name__)
+
+
+class BroadcastFlow(StatesGroup):
+    waiting_text = State()
+    waiting_confirm = State()
 
 
 def _is_admin(user_id: int | None, settings: Settings) -> bool:
@@ -99,6 +118,139 @@ async def admin_command(
         admin_dashboard_text(statistics),
         reply_markup=admin_dashboard_keyboard(),
     )
+
+
+@router.message(Command("broadcast"))
+async def broadcast_command(
+    message: Message,
+    settings: Settings,
+    state: FSMContext,
+) -> None:
+    user_id = message.from_user.id if message.from_user else None
+    if not _is_admin(user_id, settings):
+        await message.answer(ACCESS_DENIED)
+        return
+
+    await state.clear()
+    await state.set_state(BroadcastFlow.waiting_text)
+    await message.answer(BROADCAST_WAITING_TEXT)
+
+
+@router.message(Command("cancel"), BroadcastFlow.waiting_text)
+@router.message(Command("cancel"), BroadcastFlow.waiting_confirm)
+async def cancel_broadcast_command(
+    message: Message,
+    state: FSMContext,
+) -> None:
+    await state.clear()
+    await message.answer(BROADCAST_CANCELLED)
+
+
+@router.message(BroadcastFlow.waiting_text)
+async def broadcast_text_received(
+    message: Message,
+    settings: Settings,
+    state: FSMContext,
+) -> None:
+    user_id = message.from_user.id if message.from_user else None
+    if not _is_admin(user_id, settings):
+        await state.clear()
+        await message.answer(ACCESS_DENIED)
+        return
+
+    text = (message.text or "").strip()
+    if not text:
+        await message.answer("Отправьте непустой текст рассылки.")
+        return
+
+    await state.update_data(text=text)
+    await state.set_state(BroadcastFlow.waiting_confirm)
+    await message.answer(
+        f"📣 Предпросмотр рассылки:\n\n{text}",
+        reply_markup=broadcast_confirm_keyboard(),
+    )
+
+
+def _is_blocked_error(error: Exception) -> bool:
+    if isinstance(error, TelegramForbiddenError):
+        return True
+    message = str(error).lower()
+    return "blocked" in message or "bot was blocked" in message
+
+
+async def _send_broadcast(
+    bot: Bot,
+    recipients: list[int],
+    text: str,
+) -> tuple[int, int, int]:
+    sent = 0
+    errors = 0
+    blocked = 0
+    for telegram_id in recipients:
+        try:
+            await bot.send_message(telegram_id, text)
+        except Exception as exc:  # pragma: no cover - logged and counted
+            errors += 1
+            if _is_blocked_error(exc):
+                blocked += 1
+            logger.warning(
+                "Broadcast delivery failed: telegram_id=%s error=%s",
+                telegram_id,
+                exc,
+            )
+            continue
+        sent += 1
+    return sent, errors, blocked
+
+
+@router.callback_query(
+    F.data.startswith(f"{BROADCAST_CALLBACK_PREFIX}:"),
+    BroadcastFlow.waiting_confirm,
+)
+async def broadcast_callback(
+    callback: CallbackQuery,
+    db: Database,
+    settings: Settings,
+    state: FSMContext,
+    bot: Bot,
+) -> None:
+    user_id = callback.from_user.id if callback.from_user else None
+    if not _is_admin(user_id, settings):
+        await callback.answer(ACCESS_DENIED, show_alert=True)
+        await state.clear()
+        return
+    if not isinstance(callback.message, Message):
+        await callback.answer("Сообщение недоступно", show_alert=True)
+        return
+
+    action = (callback.data or "").split(":", maxsplit=1)[-1]
+    if action == "cancel":
+        await state.clear()
+        await callback.message.answer(BROADCAST_CANCELLED)
+        await callback.answer()
+        return
+    if action != "send":
+        await callback.answer("Некорректная команда", show_alert=True)
+        return
+
+    data = await state.get_data()
+    text = (data.get("text") or "").strip()
+    if not text:
+        await state.clear()
+        await callback.answer("Текст рассылки не найден", show_alert=True)
+        return
+
+    recipients = await db.get_broadcast_recipients()
+    sent, errors, blocked = await _send_broadcast(bot, recipients, text)
+    await state.clear()
+    await callback.message.answer(
+        "📣 Рассылка завершена.\n\n"
+        f"Всего пользователей: {len(recipients)}\n"
+        f"Отправлено: {sent}\n"
+        f"Ошибок: {errors}\n"
+        f"Заблокировали бота: {blocked}"
+    )
+    await callback.answer()
 
 
 @router.callback_query(

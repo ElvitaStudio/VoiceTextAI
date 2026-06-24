@@ -809,6 +809,18 @@ class Database:
             )
         return users
 
+    async def get_broadcast_recipients(self) -> list[int]:
+        async with self._connect() as db:
+            cursor = await db.execute(
+                """
+                SELECT telegram_id
+                FROM users
+                ORDER BY id
+                """
+            )
+            rows = await cursor.fetchall()
+        return [int(row[0]) for row in rows]
+
     async def get_admin_statistics(self) -> AdminStatistics:
         today = self._today()
         async with self._connect() as db:

@@ -5,7 +5,6 @@ from app.database import AdminUserPage
 
 
 ADMIN_CALLBACK_PREFIX = "admin"
-BROADCAST_CALLBACK_PREFIX = "broadcast"
 
 
 def _button(text: str, data: str) -> InlineKeyboardButton:
@@ -73,21 +72,4 @@ def admin_user_card_keyboard(
 def admin_back_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[[_button("⬅️ Назад", "home")]]
-    )
-
-
-def broadcast_confirm_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text="✅ Отправить",
-                    callback_data=f"{BROADCAST_CALLBACK_PREFIX}:send",
-                ),
-                InlineKeyboardButton(
-                    text="❌ Отмена",
-                    callback_data=f"{BROADCAST_CALLBACK_PREFIX}:cancel",
-                ),
-            ]
-        ]
     )

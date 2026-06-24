@@ -1,24 +1,36 @@
 from aiogram import Bot, Dispatcher
-from aiogram.types import BotCommand
+from aiogram.types import BotCommand, BotCommandScopeChat
 
 from app.config import load_settings
+from app.config import Settings
 from app.database import Database
 from app.handlers import get_router
 from app.services.openai_service import OpenAIService
 
 
-async def set_commands(bot: Bot) -> None:
-    await bot.set_my_commands(
-        [
-            BotCommand(command="start", description="Начать работу"),
-            BotCommand(command="help", description="Помощь"),
-            BotCommand(command="limits", description="Мои лимиты"),
-            BotCommand(command="history", description="История сообщений"),
-            BotCommand(command="premium", description="Premium"),
-            BotCommand(command="paysupport", description="Помощь с оплатой"),
-            BotCommand(command="invite", description="Пригласить друга"),
-        ]
-    )
+USER_COMMANDS = [
+    BotCommand(command="start", description="Начать работу"),
+    BotCommand(command="help", description="Помощь"),
+    BotCommand(command="limits", description="Мои лимиты"),
+    BotCommand(command="history", description="История сообщений"),
+    BotCommand(command="premium", description="Premium"),
+    BotCommand(command="paysupport", description="Помощь с оплатой"),
+    BotCommand(command="invite", description="Пригласить друга"),
+]
+ADMIN_COMMANDS = [
+    *USER_COMMANDS,
+    BotCommand(command="admin", description="Админ-панель"),
+    BotCommand(command="broadcast", description="Рассылка"),
+]
+
+
+async def set_commands(bot: Bot, settings: Settings) -> None:
+    await bot.set_my_commands(USER_COMMANDS)
+    for admin_id in settings.admin_ids:
+        await bot.set_my_commands(
+            ADMIN_COMMANDS,
+            scope=BotCommandScopeChat(chat_id=admin_id),
+        )
 
 
 async def run_bot() -> None:
@@ -45,7 +57,7 @@ async def run_bot() -> None:
     )
 
     try:
-        await set_commands(bot)
+        await set_commands(bot, settings)
         await dispatcher.start_polling(
             bot,
             db=db,

@@ -250,9 +250,10 @@ async def invite_command(
 ) -> None:
     user = await _current_user(message, db, profile_user)
     link = build_referral_link(bot_username, user.telegram_id)
+    keyboard = referral_keyboard(link)
     await message.answer(
         invite_message(link),
-        reply_markup=referral_keyboard(link),
+        reply_markup=keyboard,
     )
 
 
