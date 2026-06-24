@@ -20,7 +20,7 @@ VoiceText AI v1.4 is the current GitHub-ready release of the Telegram bot.
 - Telegram post
 - Email
 - Task extraction
-- Translation into supported languages
+- Translation into 15 supported languages
 - Separate daily limits for AI actions and translations
 
 ### User experience
@@ -33,9 +33,17 @@ VoiceText AI v1.4 is the current GitHub-ready release of the Telegram bot.
 
 ### Plans
 
-- Free: 5 voice messages, 1 AI action and 1 translation per day
-- Pro: 100 voice messages, 10 AI actions and 5 translations per day
+- Free: 10 voice messages, 5 AI actions and 5 translations per day
+- Pro: 100 voice messages, 50 AI actions and 50 translations per day
 - Premium: 1000 voice messages with unlimited AI actions and translations
+
+### Translation languages
+
+- Existing languages remain supported: 🇷🇺 Русский, 🇬🇧 English,
+  🇺🇦 Українська, 🇩🇪 Deutsch, 🇵🇱 Polski, 🇪🇸 Español,
+  🇫🇷 Français and 🇮🇹 Italiano
+- New languages: 🇹🇷 Türkçe, 🇵🇹 Português, 🇦🇿 Azərbaycan,
+  🇷🇴 Română, 🇨🇿 Čeština, 🇷🇸 Српски and 🇳🇱 Nederlands
 
 ### Referral system
 
@@ -54,6 +62,31 @@ VoiceText AI v1.4 is the current GitHub-ready release of the Telegram bot.
 - Product and usage statistics
 - Referral totals, top inviters and referral history
 - Legacy `/admin_users` command
+- Prepared broadcast text for the update; automatic sending is not enabled
+
+Prepared broadcast text:
+
+```text
+🎉 Большое обновление VoiceText AI!
+
+✨ Бесплатный лимит увеличен до 10 голосовых сообщений в сутки.
+
+🌍 Добавлены новые языки перевода:
+
+🇹🇷 Türkçe
+🇵🇹 Português
+🇦🇿 Azərbaycan
+🇷🇴 Română
+🇨🇿 Čeština
+🇷🇸 Српски
+🇳🇱 Nederlands
+
+⚡ Улучшены AI-функции и работа бота.
+
+🚀 Попробуйте новые возможности прямо сейчас!
+
+Спасибо, что пользуетесь VoiceText AI ❤️
+```
 
 ### Telegram Stars payments
 

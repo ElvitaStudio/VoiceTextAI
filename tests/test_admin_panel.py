@@ -27,6 +27,7 @@ from app.database import (
 from app.handlers.admin import (
     ACCESS_DENIED,
     BROADCAST_CANCELLED,
+    BROADCAST_RELEASE_TEXT,
     BROADCAST_WAITING_TEXT,
     BroadcastFlow,
     admin_callback,
@@ -104,6 +105,25 @@ class AdminPanelPresentationTests(unittest.TestCase):
                 ("✅ Отправить", "broadcast:send"),
                 ("❌ Отмена", "broadcast:cancel"),
             ],
+        )
+
+    def test_release_broadcast_text_is_prepared(self) -> None:
+        self.assertEqual(
+            BROADCAST_RELEASE_TEXT,
+            "🎉 Большое обновление VoiceText AI!\n\n"
+            "✨ Бесплатный лимит увеличен до 10 голосовых сообщений "
+            "в сутки.\n\n"
+            "🌍 Добавлены новые языки перевода:\n\n"
+            "🇹🇷 Türkçe\n"
+            "🇵🇹 Português\n"
+            "🇦🇿 Azərbaycan\n"
+            "🇷🇴 Română\n"
+            "🇨🇿 Čeština\n"
+            "🇷🇸 Српски\n"
+            "🇳🇱 Nederlands\n\n"
+            "⚡ Улучшены AI-функции и работа бота.\n\n"
+            "🚀 Попробуйте новые возможности прямо сейчас!\n\n"
+            "Спасибо, что пользуетесь VoiceText AI ❤️",
         )
 
     def test_user_card_contains_required_fields(self) -> None:

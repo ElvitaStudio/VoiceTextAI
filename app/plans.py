@@ -20,18 +20,18 @@ class PlanLimits:
 PLAN_LIMITS = {
     FREE: PlanLimits(
         name="Free",
-        voice_daily_limit=5,
+        voice_daily_limit=10,
         max_voice_duration=120,
-        ai_actions_daily_limit=1,
-        translations_daily_limit=1,
+        ai_actions_daily_limit=5,
+        translations_daily_limit=5,
         history_limit=5,
     ),
     PRO: PlanLimits(
         name="Pro",
         voice_daily_limit=100,
         max_voice_duration=600,
-        ai_actions_daily_limit=10,
-        translations_daily_limit=5,
+        ai_actions_daily_limit=50,
+        translations_daily_limit=50,
         history_limit=30,
     ),
     PREMIUM: PlanLimits(

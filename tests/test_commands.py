@@ -47,14 +47,15 @@ class CommandTextTests(unittest.TestCase):
         self.assertIn("🆓 Free", PREMIUM_TEXT)
         self.assertIn("⭐ Pro — $4.99/мес", PREMIUM_TEXT)
         self.assertIn("👑 Premium — $9.99/мес", PREMIUM_TEXT)
+        self.assertIn("• 10 голосовых в сутки", PREMIUM_TEXT)
+        self.assertIn("• 5 AI-функций в сутки", PREMIUM_TEXT)
         self.assertIn("• 100 голосовых в сутки", PREMIUM_TEXT)
-        self.assertIn("• 1 AI-функция в сутки", PREMIUM_TEXT)
-        self.assertIn("• 10 AI-функций в сутки", PREMIUM_TEXT)
-        self.assertIn("• 5 переводов в сутки", PREMIUM_TEXT)
+        self.assertIn("• 50 AI-функций в сутки", PREMIUM_TEXT)
+        self.assertIn("• 50 переводов в сутки", PREMIUM_TEXT)
         self.assertIn("• До 1000 голосовых в сутки", PREMIUM_TEXT)
         self.assertIn("⭐ Premium badge", PREMIUM_TEXT)
         self.assertIn("• Безлимитный перевод", PREMIUM_TEXT)
-        self.assertIn("VoiceText AI v1.3.1", PREMIUM_TEXT)
+        self.assertIn("VoiceText AI v1.4", PREMIUM_TEXT)
 
     def test_referral_link_generation(self) -> None:
         self.assertEqual(
@@ -84,20 +85,21 @@ class CommandTextTests(unittest.TestCase):
     def test_free_limits_text(self) -> None:
         text = limits_text(
             User(id=1, telegram_id=1, plan=FREE),
-            Usage(used=2, limit=5, plan=FREE),
+            Usage(used=2, limit=10, plan=FREE),
             AIUsage(
                 ai_actions_used=1,
-                ai_actions_limit=1,
+                ai_actions_limit=5,
                 translations_used=1,
-                translations_limit=1,
+                translations_limit=5,
             ),
         )
         self.assertIn("📊 Ваш тариф: Free", text)
-        self.assertIn("🎙 Использовано сегодня: 2/5", text)
+        self.assertIn("🎙 Использовано сегодня: 2/10", text)
         self.assertIn("⏳ Максимальная длина голосового: 2 минуты", text)
-        self.assertIn("✨ AI-функции сегодня: 1/1", text)
-        self.assertIn("Осталось AI-функций: 0", text)
-        self.assertIn("🌍 Переводы сегодня: 1/1", text)
+        self.assertIn("✨ AI-функции сегодня: 1/5", text)
+        self.assertIn("Осталось AI-функций: 4", text)
+        self.assertIn("🌍 Переводы сегодня: 1/5", text)
+        self.assertIn("Осталось переводов: 4", text)
 
     def test_pro_limits_text(self) -> None:
         text = limits_text(
@@ -105,17 +107,18 @@ class CommandTextTests(unittest.TestCase):
             Usage(used=8, limit=100, plan=PRO),
             AIUsage(
                 ai_actions_used=7,
-                ai_actions_limit=10,
+                ai_actions_limit=50,
                 translations_used=3,
-                translations_limit=5,
+                translations_limit=50,
             ),
         )
         self.assertIn("📊 Ваш тариф: Pro", text)
         self.assertIn("🎙 Использовано сегодня: 8/100", text)
         self.assertIn("⏳ Максимальная длина голосового: 10 минут", text)
-        self.assertIn("✨ AI-функции сегодня: 7/10", text)
-        self.assertIn("Осталось AI-функций: 3", text)
-        self.assertIn("🌍 Переводы сегодня: 3/5", text)
+        self.assertIn("✨ AI-функции сегодня: 7/50", text)
+        self.assertIn("Осталось AI-функций: 43", text)
+        self.assertIn("🌍 Переводы сегодня: 3/50", text)
+        self.assertIn("Осталось переводов: 47", text)
 
     def test_premium_limits_text(self) -> None:
         text = limits_text(

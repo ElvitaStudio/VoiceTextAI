@@ -34,8 +34,8 @@ Current release: **v1.4**
 
 | Plan | Voice messages | Maximum duration | AI functions | Translations |
 | --- | ---: | ---: | ---: | ---: |
-| Free | 5/day | 2 minutes | 1/day | 1/day |
-| Pro — $4.99/month | 100/day | 10 minutes | 10/day | 5/day |
+| Free | 10/day | 2 minutes | 5/day | 5/day |
+| Pro — $4.99/month | 100/day | 10 minutes | 50/day | 50/day |
 | Premium — $9.99/month | 1000/day | 30 minutes | Unlimited | Unlimited |
 
 Premium also includes unlimited history, maximum processing priority and
@@ -43,6 +43,26 @@ early access to new features.
 
 Pro costs 250 Telegram Stars for 30 days. Premium costs 500 Telegram Stars
 for 30 days.
+
+## Translation languages
+
+VoiceText AI supports translation into 15 languages:
+
+- 🇷🇺 Русский
+- 🇬🇧 English
+- 🇺🇦 Українська
+- 🇩🇪 Deutsch
+- 🇵🇱 Polski
+- 🇪🇸 Español
+- 🇫🇷 Français
+- 🇮🇹 Italiano
+- 🇹🇷 Türkçe
+- 🇵🇹 Português
+- 🇦🇿 Azərbaycan
+- 🇷🇴 Română
+- 🇨🇿 Čeština
+- 🇷🇸 Српски
+- 🇳🇱 Nederlands
 
 ## Telegram Stars payments
 
@@ -89,6 +109,30 @@ The inline panel provides:
 
 Every admin callback validates access again before reading or changing data.
 The legacy `/admin_users` command remains available.
+
+Prepared broadcast text for this update:
+
+```text
+🎉 Большое обновление VoiceText AI!
+
+✨ Бесплатный лимит увеличен до 10 голосовых сообщений в сутки.
+
+🌍 Добавлены новые языки перевода:
+
+🇹🇷 Türkçe
+🇵🇹 Português
+🇦🇿 Azərbaycan
+🇷🇴 Română
+🇨🇿 Čeština
+🇷🇸 Српски
+🇳🇱 Nederlands
+
+⚡ Улучшены AI-функции и работа бота.
+
+🚀 Попробуйте новые возможности прямо сейчас!
+
+Спасибо, что пользуетесь VoiceText AI ❤️
+```
 
 ## Tech stack
 
@@ -182,7 +226,7 @@ Suggested location for future images: `docs/screenshots/`.
 - [ ] VPS deployment and process management
 - [ ] Product analytics
 - [ ] Search and filters in the admin panel
-- [ ] User-selectable translation languages
+- [x] User-selectable translation languages
 - [ ] Exportable message history
 
 ## License

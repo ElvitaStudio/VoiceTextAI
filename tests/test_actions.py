@@ -18,6 +18,25 @@ from app.languages import SUPPORTED_LANGUAGES
 from app.services.openai_service import ACTION_INSTRUCTIONS, OpenAIService
 
 
+EXPECTED_LANGUAGE_BUTTONS = {
+    "🇷🇺 Русский",
+    "🇬🇧 English",
+    "🇺🇦 Українська",
+    "🇩🇪 Deutsch",
+    "🇵🇱 Polski",
+    "🇪🇸 Español",
+    "🇫🇷 Français",
+    "🇮🇹 Italiano",
+    "🇹🇷 Türkçe",
+    "🇵🇹 Português",
+    "🇦🇿 Azərbaycan",
+    "🇷🇴 Română",
+    "🇨🇿 Čeština",
+    "🇷🇸 Српски",
+    "🇳🇱 Nederlands",
+}
+
+
 class CallbackTests(unittest.TestCase):
     def test_keyboard_contains_all_actions(self) -> None:
         keyboard = text_actions_keyboard(17)
@@ -62,6 +81,11 @@ class CallbackTests(unittest.TestCase):
         }
         expected.add("lang:back:17")
         self.assertEqual(callback_data, expected)
+        self.assertEqual(len(SUPPORTED_LANGUAGES), 15)
+        self.assertEqual(
+            {button for button, _name in SUPPORTED_LANGUAGES.values()},
+            EXPECTED_LANGUAGE_BUTTONS,
+        )
 
     def test_language_callback_parser(self) -> None:
         self.assertEqual(
@@ -80,14 +104,14 @@ class CallbackTests(unittest.TestCase):
         self.assertEqual(
             AI_LIMIT_MESSAGE,
             "🔒 Лимит AI-функций исчерпан.\n\n"
-            "⭐ Pro — 10 AI-функций в сутки.\n"
+            "⭐ Pro — 50 AI-функций в сутки.\n"
             "👑 Premium — безлимитные AI-функции.\n\n"
             "Подробнее: /premium",
         )
         self.assertEqual(
             TRANSLATION_LIMIT_MESSAGE,
             "🌍 Лимит переводов исчерпан.\n\n"
-            "⭐ Pro — 5 переводов в сутки.\n"
+            "⭐ Pro — 50 переводов в сутки.\n"
             "👑 Premium — безлимитный перевод.\n\n"
             "Подробнее: /premium",
         )

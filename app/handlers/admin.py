@@ -39,6 +39,25 @@ BROADCAST_WAITING_TEXT = (
     "Для отмены нажмите /cancel."
 )
 BROADCAST_CANCELLED = "❌ Рассылка отменена."
+BROADCAST_RELEASE_TEXT = """🎉 Большое обновление VoiceText AI!
+
+✨ Бесплатный лимит увеличен до 10 голосовых сообщений в сутки.
+
+🌍 Добавлены новые языки перевода:
+
+🇹🇷 Türkçe
+🇵🇹 Português
+🇦🇿 Azərbaycan
+🇷🇴 Română
+🇨🇿 Čeština
+🇷🇸 Српски
+🇳🇱 Nederlands
+
+⚡ Улучшены AI-функции и работа бота.
+
+🚀 Попробуйте новые возможности прямо сейчас!
+
+Спасибо, что пользуетесь VoiceText AI ❤️"""
 logger = logging.getLogger(__name__)
 
 

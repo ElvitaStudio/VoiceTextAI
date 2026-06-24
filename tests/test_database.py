@@ -15,7 +15,7 @@ class DatabaseLimitTests(unittest.IsolatedAsyncioTestCase):
         self.temp_dir = TemporaryDirectory()
         self.db = Database(
             Path(self.temp_dir.name) / "test.db",
-            daily_free_limit=5,
+            daily_free_limit=10,
         )
         await self.db.initialize()
         self.user = await self.db.upsert_user(
@@ -28,31 +28,33 @@ class DatabaseLimitTests(unittest.IsolatedAsyncioTestCase):
         self.temp_dir.cleanup()
 
     async def test_daily_limit_and_release(self) -> None:
-        for expected_used in range(1, 6):
+        for expected_used in range(1, 11):
             reserved, used = await self.db.reserve_usage(self.user)
             self.assertTrue(reserved)
             self.assertEqual(used, expected_used)
 
         reserved, used = await self.db.reserve_usage(self.user)
         self.assertFalse(reserved)
-        self.assertEqual(used, 5)
+        self.assertEqual(used, 10)
 
         await self.db.release_usage(self.user)
         reserved, used = await self.db.reserve_usage(self.user)
         self.assertTrue(reserved)
-        self.assertEqual(used, 5)
+        self.assertEqual(used, 10)
 
     async def test_free_has_separate_ai_and_translation_limits(self) -> None:
         self.assertEqual(self.user.plan, FREE)
-        self.assertTrue(await self.db.reserve_ai_action(self.user))
+        for _ in range(5):
+            self.assertTrue(await self.db.reserve_ai_action(self.user))
         self.assertFalse(await self.db.reserve_ai_action(self.user))
-        self.assertTrue(await self.db.reserve_translation(self.user))
+        for _ in range(5):
+            self.assertTrue(await self.db.reserve_translation(self.user))
         self.assertFalse(await self.db.reserve_translation(self.user))
 
         usage = await self.db.get_ai_usage(self.user)
-        self.assertEqual(usage.ai_actions_used, 1)
+        self.assertEqual(usage.ai_actions_used, 5)
         self.assertEqual(usage.ai_actions_remaining, 0)
-        self.assertEqual(usage.translations_used, 1)
+        self.assertEqual(usage.translations_used, 5)
         self.assertEqual(usage.translations_remaining, 0)
 
         await self.db.release_ai_action(self.user)
@@ -62,35 +64,33 @@ class DatabaseLimitTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_free_ai_reservation_is_atomic(self) -> None:
         reservations = await asyncio.gather(
-            self.db.reserve_ai_action(self.user),
-            self.db.reserve_ai_action(self.user),
+            *[self.db.reserve_ai_action(self.user) for _ in range(6)],
         )
-        self.assertEqual(sorted(reservations), [False, True])
+        self.assertEqual(sorted(reservations), [False, True, True, True, True, True])
 
     async def test_translation_reservation_is_atomic(self) -> None:
         reservations = await asyncio.gather(
-            self.db.reserve_translation(self.user),
-            self.db.reserve_translation(self.user),
+            *[self.db.reserve_translation(self.user) for _ in range(6)],
         )
-        self.assertEqual(sorted(reservations), [False, True])
+        self.assertEqual(sorted(reservations), [False, True, True, True, True, True])
 
-    async def test_pro_has_10_ai_and_5_translations(self) -> None:
+    async def test_pro_has_50_ai_and_50_translations(self) -> None:
         await self.db.set_user_plan(self.user.telegram_id, PRO)
         user = await self.db.upsert_user(123, "tester", "Test")
         self.assertEqual(user.plan, PRO)
 
-        for _ in range(10):
+        for _ in range(50):
             self.assertTrue(await self.db.reserve_ai_action(user))
         self.assertFalse(await self.db.reserve_ai_action(user))
 
-        for _ in range(5):
+        for _ in range(50):
             self.assertTrue(await self.db.reserve_translation(user))
         self.assertFalse(await self.db.reserve_translation(user))
 
         usage = await self.db.get_ai_usage(user)
-        self.assertEqual(usage.ai_actions_used, 10)
+        self.assertEqual(usage.ai_actions_used, 50)
         self.assertEqual(usage.ai_actions_remaining, 0)
-        self.assertEqual(usage.translations_used, 5)
+        self.assertEqual(usage.translations_used, 50)
         self.assertEqual(usage.translations_remaining, 0)
 
     async def test_premium_has_limited_voice_and_unlimited_ai(self) -> None:
@@ -204,18 +204,20 @@ class DatabaseLimitTests(unittest.IsolatedAsyncioTestCase):
         await regular_db.initialize()
         regular = await regular_db.upsert_user(778, "user", "User")
 
-        for expected_used in range(1, 6):
+        for expected_used in range(1, 11):
             self.assertEqual(
                 await regular_db.reserve_usage(regular),
                 (True, expected_used),
             )
         self.assertEqual(
             await regular_db.reserve_usage(regular),
-            (False, 5),
+            (False, 10),
         )
-        self.assertTrue(await regular_db.reserve_ai_action(regular))
+        for _ in range(5):
+            self.assertTrue(await regular_db.reserve_ai_action(regular))
         self.assertFalse(await regular_db.reserve_ai_action(regular))
-        self.assertTrue(await regular_db.reserve_translation(regular))
+        for _ in range(5):
+            self.assertTrue(await regular_db.reserve_translation(regular))
         self.assertFalse(await regular_db.reserve_translation(regular))
 
     async def test_usage_tables_are_separate(self) -> None:

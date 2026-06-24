@@ -93,14 +93,14 @@ async def send_copyable_text(target: Message, text: str) -> None:
 
 AI_LIMIT_MESSAGE = """🔒 Лимит AI-функций исчерпан.
 
-⭐ Pro — 10 AI-функций в сутки.
+⭐ Pro — 50 AI-функций в сутки.
 👑 Premium — безлимитные AI-функции.
 
 Подробнее: /premium"""
 
 TRANSLATION_LIMIT_MESSAGE = """🌍 Лимит переводов исчерпан.
 
-⭐ Pro — 5 переводов в сутки.
+⭐ Pro — 50 переводов в сутки.
 👑 Premium — безлимитный перевод.
 
 Подробнее: /premium"""
