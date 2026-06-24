@@ -18,12 +18,20 @@ class ReferralHelpersTests(unittest.TestCase):
         self.assertIsNone(parse_referral_payload("other_123"))
         self.assertIsNone(parse_referral_payload(None))
 
-    def test_invite_message_contains_link_and_conditions(self) -> None:
+    def test_invite_message_is_short_and_action_focused(self) -> None:
         link = build_referral_link("VoiceTextAIBot", 123)
         text = invite_message(link)
-        self.assertIn(link, text)
-        self.assertIn("Premium на 3 дня", text)
-        self.assertIn("только один раз", text)
+        self.assertEqual(
+            text,
+            "🎁 Приглашайте друзей и получайте Premium на 3 дня!\n\n"
+            "За каждого нового пользователя, который впервые запустит "
+            "VoiceText AI по вашей ссылке, вы получите +3 дня Premium.\n\n"
+            "Награда начисляется автоматически.\n\n"
+            "👇 Выберите действие:",
+        )
+        self.assertNotIn(link, text)
+        self.assertNotIn("Ваша ссылка:", text)
+        self.assertNotIn("Условия:", text)
 
     def test_share_url_contains_link_and_invite_text(self) -> None:
         link = build_referral_link("VoiceTextAIBot", 123)

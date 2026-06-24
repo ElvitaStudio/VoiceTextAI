@@ -410,10 +410,11 @@ class InviteRoutingTests(unittest.IsolatedAsyncioTestCase):
         db.upsert_user.assert_awaited_once()
         self.assertEqual(len(session.methods), 1)
         method = session.methods[0]
-        self.assertIn(
+        self.assertNotIn(
             "https://t.me/VoiceTextAIBot?start=ref_12345",
             method.text,
         )
+        self.assertIn("👇 Выберите действие:", method.text)
         self.assertIsInstance(method.reply_markup, InlineKeyboardMarkup)
         self.assertEqual(len(method.reply_markup.inline_keyboard), 2)
         share_button = method.reply_markup.inline_keyboard[0][0]
