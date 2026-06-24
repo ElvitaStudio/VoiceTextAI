@@ -76,7 +76,8 @@ def admin_dashboard_text(statistics: AdminStatistics) -> str:
         "👑 Панель администратора\n\n"
         f"👥 Пользователей: {statistics.total_users}\n"
         f"⭐ Pro: {statistics.pro_users}\n"
-        f"👑 Premium: {statistics.premium_users}\n\n"
+        f"👑 Premium: {statistics.premium_users}\n"
+        f"🚫 Заблокировали бота: {statistics.blocked_users}\n\n"
         "Выберите действие:"
     )
 
@@ -122,6 +123,7 @@ def admin_statistics_text(statistics: AdminStatistics) -> str:
         f"🆓 Free: {statistics.free_users}\n"
         f"⭐ Pro: {statistics.pro_users}\n"
         f"👑 Premium: {statistics.premium_users}\n"
+        f"🚫 Заблокировали бота: {statistics.blocked_users}\n"
         f"🆕 Пользователей за сегодня: {statistics.users_today}\n"
         f"🎙 Обработано голосовых всего: "
         f"{statistics.voice_messages_total}\n"

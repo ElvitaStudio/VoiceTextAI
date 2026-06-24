@@ -108,6 +108,24 @@ class AdminUser:
 
 
 @dataclass(frozen=True, slots=True)
+class BroadcastRecipient:
+    telegram_id: int
+    username: str | None
+    first_name: str | None
+    last_name: str | None
+    full_name: str | None
+
+    @property
+    def display_name(self) -> str:
+        if self.full_name:
+            return self.full_name
+        name = " ".join(
+            part for part in (self.first_name, self.last_name) if part
+        )
+        return name or "Имя без username"
+
+
+@dataclass(frozen=True, slots=True)
 class AdminStatistics:
     total_users: int
     free_users: int
@@ -117,6 +135,7 @@ class AdminStatistics:
     voice_messages_total: int
     ai_actions_today: int
     translations_today: int
+    blocked_users: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -205,6 +224,8 @@ class Database:
                     referred_by INTEGER,
                     premium_until TEXT,
                     plan_until TEXT,
+                    is_blocked INTEGER NOT NULL DEFAULT 0,
+                    blocked_at TEXT,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL,
                     FOREIGN KEY (referred_by)
@@ -323,6 +344,15 @@ class Database:
             if "plan_until" not in columns:
                 await db.execute(
                     "ALTER TABLE users ADD COLUMN plan_until TEXT"
+                )
+            if "is_blocked" not in columns:
+                await db.execute(
+                    "ALTER TABLE users "
+                    "ADD COLUMN is_blocked INTEGER NOT NULL DEFAULT 0"
+                )
+            if "blocked_at" not in columns:
+                await db.execute(
+                    "ALTER TABLE users ADD COLUMN blocked_at TEXT"
                 )
             await db.execute(
                 """
@@ -809,17 +839,47 @@ class Database:
             )
         return users
 
-    async def get_broadcast_recipients(self) -> list[int]:
+    async def get_broadcast_recipients(self) -> list[BroadcastRecipient]:
         async with self._connect() as db:
+            db.row_factory = aiosqlite.Row
             cursor = await db.execute(
                 """
-                SELECT telegram_id
+                SELECT
+                    telegram_id,
+                    username,
+                    first_name,
+                    last_name,
+                    full_name
                 FROM users
+                WHERE is_blocked = 0
                 ORDER BY id
                 """
             )
             rows = await cursor.fetchall()
-        return [int(row[0]) for row in rows]
+        return [
+            BroadcastRecipient(
+                telegram_id=row["telegram_id"],
+                username=row["username"],
+                first_name=row["first_name"],
+                last_name=row["last_name"],
+                full_name=row["full_name"],
+            )
+            for row in rows
+        ]
+
+    async def mark_user_blocked(self, telegram_id: int) -> None:
+        async with self._connect() as db:
+            await db.execute(
+                """
+                UPDATE users
+                SET is_blocked = 1,
+                    blocked_at = ?,
+                    updated_at = ?
+                WHERE telegram_id = ?
+                """,
+                (self._now(), self._now(), telegram_id),
+            )
+            await db.commit()
 
     async def get_admin_statistics(self) -> AdminStatistics:
         today = self._today()
@@ -835,11 +895,20 @@ class Database:
                     referred_by,
                     premium_until,
                     plan_until,
+                    is_blocked,
                     created_at
                 FROM users
                 """
             )
             user_rows = await cursor.fetchall()
+            cursor = await db.execute(
+                """
+                SELECT COUNT(*)
+                FROM users
+                WHERE is_blocked = 1
+                """
+            )
+            blocked_row = await cursor.fetchone()
             cursor = await db.execute(
                 """
                 SELECT COUNT(*)
@@ -886,6 +955,7 @@ class Database:
             translations_today=(
                 int(translation_row[0]) if translation_row else 0
             ),
+            blocked_users=int(blocked_row[0]) if blocked_row else 0,
         )
 
     async def get_admin_users_page(

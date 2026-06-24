@@ -22,6 +22,7 @@ from app.database import (
     AdminReferralReport,
     AdminStatistics,
     AdminUser,
+    BroadcastRecipient,
     Database,
 )
 from app.handlers.admin import (
@@ -34,6 +35,7 @@ from app.handlers.admin import (
     admin_command,
     broadcast_callback,
     broadcast_command,
+    broadcast_report_chunks,
     broadcast_text_received,
 )
 from app.plans import FREE, PREMIUM, PRO
@@ -49,6 +51,7 @@ def statistics() -> AdminStatistics:
         voice_messages_total=30,
         ai_actions_today=7,
         translations_today=2,
+        blocked_users=1,
     )
 
 
@@ -77,6 +80,7 @@ class AdminPanelPresentationTests(unittest.TestCase):
         self.assertIn("👥 Пользователей: 15", text)
         self.assertIn("⭐ Pro: 3", text)
         self.assertIn("👑 Premium: 2", text)
+        self.assertIn("🚫 Заблокировали бота: 1", text)
 
         buttons = [
             (button.text, button.callback_data)
@@ -173,6 +177,31 @@ class AdminPanelPresentationTests(unittest.TestCase):
         )
         self.assertGreater(len(chunks), 1)
         self.assertTrue(all(len(chunk) <= 4000 for chunk in chunks))
+
+    def test_long_blocked_user_list_is_split_safely(self) -> None:
+        blocked_users = [
+            BroadcastRecipient(
+                telegram_id=100_000 + index,
+                username=f"blocked_{index}",
+                first_name="Очень длинное имя " * 10,
+                last_name=str(index),
+                full_name=None,
+            )
+            for index in range(150)
+        ]
+
+        chunks = broadcast_report_chunks(
+            total_users=200,
+            sent=50,
+            errors=150,
+            blocked_users=blocked_users,
+        )
+
+        self.assertGreater(len(chunks), 1)
+        self.assertTrue(all(len(chunk) <= 4096 for chunk in chunks))
+        combined = "\n".join(chunks)
+        self.assertIn("🚫 Заблокировали:", combined)
+        self.assertIn("blocked_149", combined)
 
 
 class AdminPanelHandlerTests(unittest.IsolatedAsyncioTestCase):
@@ -277,8 +306,14 @@ class AdminPanelHandlerTests(unittest.IsolatedAsyncioTestCase):
             message=SimpleNamespace(answer=AsyncMock()),
             answer=AsyncMock(),
         )
+        recipients = [
+            BroadcastRecipient(101, "ok", "Ok", None, "Ok User"),
+            BroadcastRecipient(102, "blocked", "Blocked", None, None),
+            BroadcastRecipient(103, "error", "Error", None, None),
+        ]
         db = SimpleNamespace(
-            get_broadcast_recipients=AsyncMock(return_value=[101, 102, 103])
+            get_broadcast_recipients=AsyncMock(return_value=recipients),
+            mark_user_blocked=AsyncMock(),
         )
         bot = SimpleNamespace(
             send_message=AsyncMock(
@@ -303,8 +338,43 @@ class AdminPanelHandlerTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Отправлено: 1", text)
         self.assertIn("Ошибок: 2", text)
         self.assertIn("Заблокировали бота: 1", text)
+        self.assertIn("🚫 Заблокировали:", text)
+        self.assertIn("• Blocked (@blocked) — 102", text)
+        db.mark_user_blocked.assert_awaited_once_with(102)
         callback.answer.assert_awaited_once_with()
         self.assertIsNone(state.current_state)
+
+    async def test_non_blocking_send_error_does_not_mark_blocked(
+        self,
+    ) -> None:
+        settings = Settings("token", "key", admin_ids=frozenset({11}))
+        state = FakeState({"text": "Новость"}, BroadcastFlow.waiting_confirm)
+        callback = SimpleNamespace(
+            from_user=SimpleNamespace(id=11),
+            data="broadcast:send",
+            message=SimpleNamespace(answer=AsyncMock()),
+            answer=AsyncMock(),
+        )
+        recipients = [
+            BroadcastRecipient(101, None, "User", None, None),
+        ]
+        db = SimpleNamespace(
+            get_broadcast_recipients=AsyncMock(return_value=recipients),
+            mark_user_blocked=AsyncMock(),
+        )
+        bot = SimpleNamespace(
+            send_message=AsyncMock(side_effect=RuntimeError("network error"))
+        )
+
+        with patch("app.handlers.admin.Message", SimpleNamespace):
+            with self.assertLogs("app.handlers.admin", level="WARNING"):
+                await broadcast_callback(callback, db, settings, state, bot)
+
+        db.mark_user_blocked.assert_not_awaited()
+        text = callback.message.answer.await_args.args[0]
+        self.assertIn("Ошибок: 1", text)
+        self.assertIn("Заблокировали бота: 0", text)
+        self.assertNotIn("🚫 Заблокировали:", text)
 
     async def test_callback_denies_non_admin(self) -> None:
         callback = SimpleNamespace(
@@ -403,10 +473,58 @@ class AdminPanelDatabaseTests(unittest.IsolatedAsyncioTestCase):
         await self.db.upsert_user(500, "user500", "User")
         await self.db.upsert_user(501, "user501", "User")
 
+        recipients = await self.db.get_broadcast_recipients()
         self.assertEqual(
-            await self.db.get_broadcast_recipients(),
+            [recipient.telegram_id for recipient in recipients],
             [500, 501],
         )
+        self.assertEqual(recipients[0].username, "user500")
+
+    async def test_broadcast_marks_blocked_user_in_database(self) -> None:
+        await self.db.upsert_user(
+            500,
+            "blocked_user",
+            "Blocked",
+            "User",
+            "Blocked User",
+        )
+
+        await self.db.mark_user_blocked(500)
+
+        async with self.db._connect() as connection:
+            cursor = await connection.execute(
+                """
+                SELECT is_blocked, blocked_at
+                FROM users
+                WHERE telegram_id = ?
+                """,
+                (500,),
+            )
+            row = await cursor.fetchone()
+        self.assertEqual(row[0], 1)
+        self.assertIsNotNone(row[1])
+
+    async def test_blocked_users_are_skipped_in_future_broadcasts(
+        self,
+    ) -> None:
+        await self.db.upsert_user(500, "blocked_user", "Blocked")
+        await self.db.upsert_user(501, "active_user", "Active")
+        await self.db.mark_user_blocked(500)
+
+        recipients = await self.db.get_broadcast_recipients()
+
+        self.assertEqual(
+            [recipient.telegram_id for recipient in recipients],
+            [501],
+        )
+
+    async def test_blocked_columns_are_migrated_safely(self) -> None:
+        async with self.db._connect() as connection:
+            cursor = await connection.execute("PRAGMA table_info(users)")
+            columns = {row[1] for row in await cursor.fetchall()}
+
+        self.assertIn("is_blocked", columns)
+        self.assertIn("blocked_at", columns)
 
     async def test_plan_actions_and_temporary_premium(self) -> None:
         await self.db.upsert_user(

@@ -27,7 +27,7 @@ from app.admin_keyboards import (
     broadcast_confirm_keyboard,
 )
 from app.config import Settings
-from app.database import Database, User
+from app.database import BroadcastRecipient, Database, User
 from app.plans import FREE, PREMIUM, PRO
 from app.presentation import split_text
 
@@ -193,33 +193,72 @@ async def broadcast_text_received(
 def _is_blocked_error(error: Exception) -> bool:
     if isinstance(error, TelegramForbiddenError):
         return True
+    if error.__class__.__name__ == "BotBlocked":
+        return True
     message = str(error).lower()
-    return "blocked" in message or "bot was blocked" in message
+    blocked_markers = (
+        "forbidden",
+        "blocked",
+        "bot was blocked by the user",
+        "user is deactivated",
+        "chat not found",
+        "bot can't initiate conversation",
+    )
+    return any(marker in message for marker in blocked_markers)
+
+
+def _blocked_user_line(user: BroadcastRecipient) -> str:
+    username = f" (@{user.username})" if user.username else ""
+    return f"• {user.display_name}{username} — {user.telegram_id}"
+
+
+def broadcast_report_chunks(
+    *,
+    total_users: int,
+    sent: int,
+    errors: int,
+    blocked_users: list[BroadcastRecipient],
+) -> list[str]:
+    report = (
+        "📢 Рассылка завершена.\n\n"
+        f"Всего пользователей: {total_users}\n"
+        f"Отправлено: {sent}\n"
+        f"Ошибок: {errors}\n"
+        f"Заблокировали бота: {len(blocked_users)}"
+    )
+    if blocked_users:
+        blocked_lines = "\n".join(
+            _blocked_user_line(user) for user in blocked_users
+        )
+        report += f"\n\n🚫 Заблокировали:\n\n{blocked_lines}"
+    return split_text(report)
 
 
 async def _send_broadcast(
     bot: Bot,
-    recipients: list[int],
+    db: Database,
+    recipients: list[BroadcastRecipient],
     text: str,
-) -> tuple[int, int, int]:
+) -> tuple[int, int, list[BroadcastRecipient]]:
     sent = 0
     errors = 0
-    blocked = 0
-    for telegram_id in recipients:
+    blocked_users: list[BroadcastRecipient] = []
+    for recipient in recipients:
         try:
-            await bot.send_message(telegram_id, text)
+            await bot.send_message(recipient.telegram_id, text)
         except Exception as exc:  # pragma: no cover - logged and counted
             errors += 1
             if _is_blocked_error(exc):
-                blocked += 1
+                await db.mark_user_blocked(recipient.telegram_id)
+                blocked_users.append(recipient)
             logger.warning(
                 "Broadcast delivery failed: telegram_id=%s error=%s",
-                telegram_id,
+                recipient.telegram_id,
                 exc,
             )
             continue
         sent += 1
-    return sent, errors, blocked
+    return sent, errors, blocked_users
 
 
 @router.callback_query(
@@ -260,15 +299,21 @@ async def broadcast_callback(
         return
 
     recipients = await db.get_broadcast_recipients()
-    sent, errors, blocked = await _send_broadcast(bot, recipients, text)
-    await state.clear()
-    await callback.message.answer(
-        "📣 Рассылка завершена.\n\n"
-        f"Всего пользователей: {len(recipients)}\n"
-        f"Отправлено: {sent}\n"
-        f"Ошибок: {errors}\n"
-        f"Заблокировали бота: {blocked}"
+    sent, errors, blocked_users = await _send_broadcast(
+        bot,
+        db,
+        recipients,
+        text,
     )
+    await state.clear()
+    chunks = broadcast_report_chunks(
+        total_users=len(recipients),
+        sent=sent,
+        errors=errors,
+        blocked_users=blocked_users,
+    )
+    for chunk in chunks:
+        await callback.message.answer(chunk)
     await callback.answer()
 
 
